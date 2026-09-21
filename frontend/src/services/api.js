@@ -1,0 +1,187 @@
+/**
+ * API Service Layer for Regulatory Content Reuse Finder.
+ *
+ * Connects frontend to the FastAPI backend.
+ * Never passes or expects API keys on the frontend.
+ */
+
+const API_BASE = import.meta.env?.VITE_API_BASE ?? "";
+
+async function handleResponse(res) {
+  if (!res.ok) {
+    let errorDetail = `HTTP Error ${res.status}: ${res.statusText}`;
+    try {
+      const data = await res.json();
+      if (data.detail) errorDetail = data.detail;
+      else if (data.message) errorDetail = data.message;
+    } catch {
+      // Non-JSON response
+    }
+    throw new Error(errorDetail);
+  }
+  return res.json();
+}
+
+export const api = {
+  /**
+   * Health & Source connectivity check
+   */
+  async getHealth() {
+    const res = await fetch(`${API_BASE}/health`);
+    return handleResponse(res);
+  },
+
+  /**
+   * Live search across DailyMed and openFDA
+   */
+  async searchRegulatorySources(query, source = "all", section = null, limit = 10) {
+    const params = new URLSearchParams({
+      query: query.trim(),
+      source,
+      limit: limit.toString(),
+    });
+    if (section) params.append("section", section);
+
+    const res = await fetch(`${API_BASE}/regulatory/search?${params.toString()}`);
+    return handleResponse(res);
+  },
+
+  /**
+   * Fetch specific document details by Set ID or Record ID
+   */
+  async getDocumentDetails(source, identifier) {
+    const res = await fetch(`${API_BASE}/regulatory/document/${source}/${encodeURIComponent(identifier)}`);
+    return handleResponse(res);
+  },
+
+  /**
+   * Check live connectivity status of DailyMed and openFDA
+   */
+  async getSourcesStatus() {
+    const res = await fetch(`${API_BASE}/regulatory/sources/status`);
+    return handleResponse(res);
+  },
+
+  /**
+   * Upload and segment document text into structured sections
+   */
+  async uploadDocument(documentName, content) {
+    const res = await fetch(`${API_BASE}/documents/upload`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ document_name: documentName, content }),
+    });
+    return handleResponse(res);
+  },
+
+  /**
+   * Compare candidate items with target text using Agent 1
+   */
+  async analyzeCandidates(targetText, candidates = [], sectionName = null) {
+    const res = await fetch(`${API_BASE}/content/analyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        target_text: targetText,
+        section_name: sectionName,
+        candidates,
+      }),
+    });
+    return handleResponse(res);
+  },
+
+  /**
+   * Detect differences between two texts
+   */
+  async compareTexts(currentText, candidateText) {
+    const res = await fetch(`${API_BASE}/content/compare`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        current_text: currentText,
+        candidate_text: candidateText,
+      }),
+    });
+    return handleResponse(res);
+  },
+
+  /**
+   * Record human regulatory professional decision (Reuse, Adapt, Reject)
+   */
+  async recordDecision(decisionData) {
+    const res = await fetch(`${API_BASE}/review/decision`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(decisionData),
+    });
+    return handleResponse(res);
+  },
+
+  /**
+   * Formulate controlled change proposal via Agent 2
+   */
+  async analyzeChangeProposal(proposalData) {
+    const res = await fetch(`${API_BASE}/changes/analyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(proposalData),
+    });
+    return handleResponse(res);
+  },
+
+  /**
+   * Validate change proposal
+   */
+  async validateChange(proposal) {
+    const res = await fetch(`${API_BASE}/changes/validate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(proposal),
+    });
+    return handleResponse(res);
+  },
+
+  /**
+   * Detect related occurrences across document sections
+   */
+  async detectOccurrences(targetPhrase, documentSections, targetText = null) {
+    const res = await fetch(`${API_BASE}/changes/occurrences`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        target_phrase: targetPhrase,
+        document_sections: documentSections,
+        target_text: targetText,
+      }),
+    });
+    return handleResponse(res);
+  },
+
+  /**
+   * Finalize human approval and compile change report
+   */
+  async approveAndGenerateReport(reportData) {
+    const res = await fetch(`${API_BASE}/changes/approve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(reportData),
+    });
+    return handleResponse(res);
+  },
+
+  /**
+   * List pending change proposals
+   */
+  async listProposals() {
+    const res = await fetch(`${API_BASE}/changes/report`);
+    return handleResponse(res);
+  },
+
+  /**
+   * Get decision history
+   */
+  async getHistory() {
+    const res = await fetch(`${API_BASE}/history`);
+    return handleResponse(res);
+  },
+};

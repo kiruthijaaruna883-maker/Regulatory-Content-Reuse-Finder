@@ -1,0 +1,26 @@
+[
+  {
+    "case_id": "sem_01",
+    "description": "Equivalent dosage directive with synonymous wording",
+    "target_text": "Adults: Take 10 mg orally once daily in the morning with water.",
+    "candidate_text": "The recommended dosage for adult patients is 10 mg taken by mouth once each day in the morning.",
+    "expected_status": "MATCH",
+    "expected_dimension": "meaning"
+  },
+  {
+    "case_id": "sem_02",
+    "description": "Partial semantic alignment with differing timing instructions",
+    "target_text": "Administer 25 mg intravenously over 30 minutes prior to chemotherapy.",
+    "candidate_text": "Administer 25 mg intravenously as a rapid bolus injection immediately following chemotherapy.",
+    "expected_status": "PARTIAL",
+    "expected_dimension": "meaning"
+  },
+  {
+    "case_id": "sem_03",
+    "description": "Divergent directive - treatment vs contraindication",
+    "target_text": "Indicated for the acute management of uncomplicated migraine attacks in adults.",
+    "candidate_text": "Contraindicated in patients with ischemic coronary artery disease or coronary vasospasm.",
+    "expected_status": "MISMATCH",
+    "expected_dimension": "meaning"
+  }
+]

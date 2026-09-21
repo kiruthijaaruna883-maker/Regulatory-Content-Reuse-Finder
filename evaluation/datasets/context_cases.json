@@ -1,0 +1,26 @@
+[
+  {
+    "case_id": "ctx_01",
+    "description": "Prescribing recommendation context vs clinical study past observation context",
+    "target_text": "Adults: Administer 20 mg orally once daily in the morning for essential hypertension.",
+    "candidate_text": "In clinical trials, patients received 20 mg orally once daily and adverse events were monitored.",
+    "expected_status": "MISMATCH",
+    "expected_dimension": "context"
+  },
+  {
+    "case_id": "ctx_02",
+    "description": "Aligned operational prescribing contexts",
+    "target_text": "Take 5 mg orally once daily with or without food.",
+    "candidate_text": "The initial starting dose is 5 mg administered orally once daily without regard to meals.",
+    "expected_status": "MATCH",
+    "expected_dimension": "context"
+  },
+  {
+    "case_id": "ctx_03",
+    "description": "Study report context compared to study report context",
+    "target_text": "In Study 101, clinical trials demonstrated a significant reduction in blood pressure after 12 weeks.",
+    "candidate_text": "In clinical trials with 450 subjects, patients received study drug for 24 weeks.",
+    "expected_status": "MATCH",
+    "expected_dimension": "context"
+  }
+]

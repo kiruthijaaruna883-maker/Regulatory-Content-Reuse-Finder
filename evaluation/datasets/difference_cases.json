@@ -1,0 +1,50 @@
+[
+  {
+    "case_id": "diff_01",
+    "description": "Dose and frequency variation without arbitrary severity scores",
+    "target_text": "Adults: Take 250 mg orally every 8 hours.",
+    "candidate_text": "Adults: Take 500 mg orally every 12 hours.",
+    "expected_differences": [
+      {
+        "attribute": "dose",
+        "current_value": "250 mg",
+        "candidate_value": "500 mg",
+        "reviewer_attention_required": true
+      },
+      {
+        "attribute": "frequency",
+        "current_value": "every 8 hours",
+        "candidate_value": "every 12 hours",
+        "reviewer_attention_required": true
+      }
+    ]
+  },
+  {
+    "case_id": "diff_02",
+    "description": "Route of administration disparity",
+    "target_text": "Administer 100 mg intravenously over 15 minutes.",
+    "candidate_text": "Administer 100 mg orally once daily.",
+    "expected_differences": [
+      {
+        "attribute": "route",
+        "current_value": "intravenously",
+        "candidate_value": "orally",
+        "reviewer_attention_required": true
+      }
+    ]
+  },
+  {
+    "case_id": "diff_03",
+    "description": "Patient population disparity",
+    "target_text": "Recommended for adult patients 18 years of age and older.",
+    "candidate_text": "Recommended for pediatric patients 2 to 12 years of age.",
+    "expected_differences": [
+      {
+        "attribute": "population",
+        "current_value": "adult",
+        "candidate_value": "pediatric",
+        "reviewer_attention_required": true
+      }
+    ]
+  }
+]

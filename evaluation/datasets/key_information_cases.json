@@ -1,0 +1,26 @@
+[
+  {
+    "case_id": "key_01",
+    "description": "Complete key information alignment",
+    "target_text": "Adults: Take 10 mg of atorvastatin orally once daily at bedtime.",
+    "candidate_text": "In adult patients, 10 mg atorvastatin is administered orally once daily at bedtime.",
+    "expected_status": "MATCH",
+    "expected_dimension": "key_information"
+  },
+  {
+    "case_id": "key_02",
+    "description": "Partial key information alignment with dose disparity",
+    "target_text": "Adults: Take 20 mg of lisinopril orally once daily in the morning.",
+    "candidate_text": "Adults: Take 40 mg of lisinopril orally once daily in the morning.",
+    "expected_status": "PARTIAL",
+    "expected_dimension": "key_information"
+  },
+  {
+    "case_id": "key_03",
+    "description": "Key information mismatch due to differing active substance",
+    "target_text": "Adults: Take 50 mg of losartan orally once daily.",
+    "candidate_text": "Adults: Take 50 mg of metoprolol orally once daily.",
+    "expected_status": "MISMATCH",
+    "expected_dimension": "key_information"
+  }
+]

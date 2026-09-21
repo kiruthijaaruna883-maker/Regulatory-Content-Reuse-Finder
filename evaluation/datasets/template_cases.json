@@ -1,0 +1,26 @@
+[
+  {
+    "case_id": "tpl_01",
+    "description": "Matching standard regulatory dosing template: [Population] + [Drug] + [Dose] + [Frequency] + [Route]",
+    "target_text": "Adult patients should take 50 mg of losartan orally once daily.",
+    "candidate_text": "Pediatric patients should take 25 mg of amlodipine orally once daily.",
+    "expected_status": "MATCH",
+    "expected_dimension": "template"
+  },
+  {
+    "case_id": "tpl_02",
+    "description": "Partial template match: one is structured dosage instruction, the other is narrative description",
+    "target_text": "Adults: Take 100 mg orally twice daily with meals.",
+    "candidate_text": "Drug exposure is enhanced when administered in the presence of food.",
+    "expected_status": "PARTIAL",
+    "expected_dimension": "template"
+  },
+  {
+    "case_id": "tpl_03",
+    "description": "Standard narrative regulatory paragraph pattern match",
+    "target_text": "Safety and effectiveness in pediatric patients below the age of 6 years have not been established.",
+    "candidate_text": "Safety and efficacy in geriatric patients aged 65 years and older were not evaluated in clinical trials.",
+    "expected_status": "MATCH",
+    "expected_dimension": "template"
+  }
+]

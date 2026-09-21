@@ -1,0 +1,26 @@
+[
+  {
+    "case_id": "fmt_01",
+    "description": "Matching numerical specification formats",
+    "target_text": "Adults: 200 mg orally every 8 hours. Do not exceed 800 mg daily.",
+    "candidate_text": "Take 400 mg orally every 12 hours up to a maximum of 800 mg per day.",
+    "expected_status": "MATCH",
+    "expected_dimension": "format"
+  },
+  {
+    "case_id": "fmt_02",
+    "description": "Numerical parameter format vs qualitative narrative format",
+    "target_text": "Administer 10 mg/kg intravenously over 60 minutes once every 3 weeks.",
+    "candidate_text": "Administer periodic intravenous infusions in accordance with institutional protocols.",
+    "expected_status": "PARTIAL",
+    "expected_dimension": "format"
+  },
+  {
+    "case_id": "fmt_03",
+    "description": "Matching qualitative narrative formats",
+    "target_text": "Inform patients of the symptoms of anaphylaxis and advise them to seek immediate medical attention.",
+    "candidate_text": "Advise patients to immediately report any signs or symptoms suggestive of severe allergic reaction.",
+    "expected_status": "MATCH",
+    "expected_dimension": "format"
+  }
+]

@@ -1,0 +1,38 @@
+[
+  {
+    "case_id": "fm_01",
+    "description": "Different Drug: High semantic phrasing overlap but conflicting active substance",
+    "target_text": "Adults: Take 50 mg of losartan orally once daily for hypertension.",
+    "candidate_text": "Adults: Take 50 mg of metoprolol orally once daily for hypertension.",
+    "has_discrepancy": true,
+    "discrepancy_type": "drug_mismatch",
+    "expected_warning": true
+  },
+  {
+    "case_id": "fm_02",
+    "description": "Different Population: Same dosage and drug but adult vs pediatric population",
+    "target_text": "Adult patients: Administer 10 mg orally once daily.",
+    "candidate_text": "Pediatric patients: Administer 10 mg orally once daily.",
+    "has_discrepancy": true,
+    "discrepancy_type": "population_mismatch",
+    "expected_warning": true
+  },
+  {
+    "case_id": "fm_03",
+    "description": "Different Context: Prescribing recommendation vs clinical trial adverse event",
+    "target_text": "Adults: Take 20 mg orally once daily for chronic pain management.",
+    "candidate_text": "In clinical trials, patients received 20 mg orally once daily and 14% experienced nausea.",
+    "has_discrepancy": true,
+    "discrepancy_type": "context_mismatch",
+    "expected_warning": true
+  },
+  {
+    "case_id": "fm_04",
+    "description": "True Match Control: Aligned drug, population, route, and dose",
+    "target_text": "Adults: Take 10 mg of atorvastatin orally once daily in the evening.",
+    "candidate_text": "In adults, atorvastatin 10 mg is administered orally once daily in the evening.",
+    "has_discrepancy": false,
+    "discrepancy_type": "none",
+    "expected_warning": false
+  }
+]

@@ -1,0 +1,26 @@
+[
+  {
+    "case_id": "str_01",
+    "description": "Tabular clinical content vs narrative paragraph",
+    "target_text": "| Dose | Frequency | Route |\n| 10 mg | Once Daily | Oral |",
+    "candidate_text": "Adults should take 10 mg orally once daily with water.",
+    "expected_status": "MISMATCH",
+    "expected_dimension": "structure"
+  },
+  {
+    "case_id": "str_02",
+    "description": "Bulleted list structure vs standard narrative paragraph",
+    "target_text": "- Administer 50 mg orally\n- Take once daily in the morning\n- Swallow whole with water",
+    "candidate_text": "Administer 50 mg orally once daily in the morning. Swallow whole with water.",
+    "expected_status": "PARTIAL",
+    "expected_dimension": "structure"
+  },
+  {
+    "case_id": "str_03",
+    "description": "Matching narrative paragraph structures",
+    "target_text": "Store at 20°C to 25°C (68°F to 77°F). Excursions permitted between 15°C and 30°C.",
+    "candidate_text": "Store at controlled room temperature 20°C to 25°C. Protect from excessive moisture.",
+    "expected_status": "MATCH",
+    "expected_dimension": "structure"
+  }
+]
