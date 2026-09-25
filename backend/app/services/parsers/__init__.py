@@ -16,9 +16,11 @@ from typing import Any, Dict, List, Optional, Union
 
 from app.models.document import RegulatoryDocument, RegulatoryProvenance
 from app.services.parsers.base_parser import BaseDocumentParser
+from app.services.parsers.docx_parser import DocxDocumentParser
 from app.services.parsers.html_parser import HtmlDocumentParser
 from app.services.parsers.json_parser import JsonDocumentParser
 from app.services.parsers.markdown_parser import MarkdownDocumentParser
+from app.services.parsers.pdf_parser import PdfDocumentParser
 from app.services.parsers.txt_parser import TextDocumentParser
 from app.services.parsers.xml_parser import XmlDocumentParser
 
@@ -29,6 +31,8 @@ __all__ = [
     "JsonDocumentParser",
     "XmlDocumentParser",
     "HtmlDocumentParser",
+    "PdfDocumentParser",
+    "DocxDocumentParser",
     "get_parser",
     "parse_regulatory_document",
 ]
@@ -42,13 +46,17 @@ def get_parser(
     """Identify and return the appropriate parser instance for the given input.
 
     Evaluates file extension, MIME type, and content signatures in priority order:
-    1. JSON
-    2. XML
-    3. HTML
-    4. Markdown
-    5. Plain TXT (fallback)
+    1. PDF
+    2. DOCX
+    3. JSON
+    4. HTML
+    5. XML
+    6. Markdown
+    7. Plain TXT (fallback)
     """
     parsers: List[BaseDocumentParser] = [
+        PdfDocumentParser(),
+        DocxDocumentParser(),
         JsonDocumentParser(),
         HtmlDocumentParser(),
         XmlDocumentParser(),
