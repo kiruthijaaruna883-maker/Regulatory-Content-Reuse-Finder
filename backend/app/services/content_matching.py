@@ -5,7 +5,7 @@ regulatory records based on token overlap, clinical terminology, and section ali
 """
 
 import re
-from typing import List, Set
+from typing import Any, List, Set
 from app.models.comparison import ComparisonCandidate, EvidenceTrace
 from app.models.content import RegulatoryContentItem
 
@@ -39,14 +39,17 @@ class ContentMatchingService:
     def rank_candidates(
         self,
         target_text: str,
-        candidates: List[RegulatoryContentItem],
+        candidates: Any,
         min_threshold: float = 0.05,
     ) -> List[ComparisonCandidate]:
         """Rank and structure candidate regulatory items against target content."""
+        from app.services.compatibility.regulatory_adapter import adapt_for_retrieval
+
+        normalized_candidates = adapt_for_retrieval(candidates)
         target_tokens = self._tokenize(target_text)
         ranked: List[ComparisonCandidate] = []
 
-        for item in candidates:
+        for item in normalized_candidates:
             score = self.compute_jaccard_similarity(target_text, item.text)
             matched_tokens = list(target_tokens.intersection(self._tokenize(item.text)))[:5]
 

@@ -106,9 +106,12 @@ class VectorStore:
         dot_product = sum(v1[i] * v2[i] for i in range(min_len))
         return max(0.0, min(1.0, dot_product))
 
-    def add_items(self, items: List[RegulatoryContentItem]) -> None:
-        """Index a batch of regulatory content items."""
-        for item in items:
+    def add_items(self, items: Any) -> None:
+        """Index a batch of regulatory content items (or adapted RegulatoryChunks/RegulatoryDocuments)."""
+        from app.services.compatibility.regulatory_adapter import adapt_for_retrieval
+
+        normalized_items = adapt_for_retrieval(items)
+        for item in normalized_items:
             vector, provider = self.generate_embedding(item.text)
             self._index.append((item, vector, provider))
 

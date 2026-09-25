@@ -13,7 +13,7 @@ from overriding regulatory discrepancies.
 """
 
 import re
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 from app.models.comparison import (
     DifferenceItem,
     DimensionEvaluation,
@@ -36,7 +36,7 @@ class MultiDimensionalComparator:
     def compare(
         self,
         target_text: str,
-        candidate: RegulatoryContentItem,
+        candidate: Any,
         target_key_info: Optional[KeyInformation] = None,
         target_section: Optional[str] = None,
     ) -> Tuple[MultiDimensionalMatch, List[DifferenceItem], StructuredEvidence, Optional[str]]:
@@ -45,6 +45,9 @@ class MultiDimensionalComparator:
         Returns:
             (MultiDimensionalMatch, List[DifferenceItem], StructuredEvidence, false_match_warning)
         """
+        from app.services.compatibility.regulatory_adapter import adapt_for_comparison
+
+        candidate: RegulatoryContentItem = adapt_for_comparison(candidate)
         curr_info = target_key_info or self.extractor.extract(target_text)
         cand_info = candidate.key_information or self.extractor.extract(candidate.text)
 

@@ -246,6 +246,10 @@ class RegulatoryChunk(BaseModel):
         default=None,
         description="Standard LOINC section code",
     )
+    page: Optional[int] = Field(
+        default=None,
+        description="Source document page number if available (e.g. from PDF/DOCX pagination)",
+    )
 
     def to_content_item(self) -> RegulatoryContentItem:
         """Backward-compatibility adapter converting RegulatoryChunk to RegulatoryContentItem.
@@ -257,13 +261,18 @@ class RegulatoryChunk(BaseModel):
             "chunk_id": self.chunk_id,
             "section_id": self.section_id,
             "parent_chunk_id": self.parent_chunk_id,
+            "chunk_type": self.chunk_type,
             "structure_path": self.structure_path,
             "normalized_content": self.normalized_content,
             "normalized_section": self.normalized_section,
             "jurisdiction": self.jurisdiction,
             "document_type": self.document_type,
             "order_index": self.order_index,
+            "exact_location": self.exact_location,
+            "loinc_code": self.loinc_code,
         }
+        if self.page is not None:
+            meta["page"] = self.page
 
         # Extract top-level clinical entity fields from key_information if present
         population = self.key_information.population if self.key_information else None
@@ -284,6 +293,7 @@ class RegulatoryChunk(BaseModel):
             date=self.publication_date,
             section=self.section_title,
             subsection=self.section_number,
+            page=self.page,
             location=self.exact_location,
             loinc_code=self.loinc_code,
             content_type=self.chunk_type,
