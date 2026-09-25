@@ -12,6 +12,7 @@ from app.services.chunking.outline_engine import (
     ListItemInfo,
     RegulatoryOutlineEngine,
 )
+from app.services.chunking.regulatory_chunker import RegulatoryChunker
 from app.services.chunking.sentence_tokenizer import RegulatorySentenceTokenizer
 from app.services.chunking.table_extractor import (
     HTMLTableParser,
@@ -27,4 +28,6 @@ __all__ = [
     "RegulatoryTableExtractor",
     "RegulatoryBulletExtractor",
     "HTMLTableParser",
+    "RegulatoryChunker",
 ]
+
