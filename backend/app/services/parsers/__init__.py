@@ -42,6 +42,7 @@ def get_parser(
     content: Union[str, bytes] = "",
     filename: Optional[str] = None,
     mime_type: Optional[str] = None,
+    raise_on_unsupported: bool = True,
 ) -> BaseDocumentParser:
     """Identify and return the appropriate parser instance for the given input.
 
@@ -52,7 +53,7 @@ def get_parser(
     4. HTML
     5. XML
     6. Markdown
-    7. Plain TXT (fallback)
+    7. Plain TXT
     """
     parsers: List[BaseDocumentParser] = [
         PdfDocumentParser(),
@@ -68,7 +69,12 @@ def get_parser(
         if parser.can_parse(content, filename=filename, mime_type=mime_type):
             return parser
 
-    # Default fallback to plain text parser
+    if raise_on_unsupported:
+        ext = f".{filename.rsplit('.', 1)[-1]}" if filename and "." in filename else None
+        target = ext or filename or mime_type or "unrecognized content"
+        raise ValueError(f"Unsupported document format: {target}")
+
+    # Fallback to plain text parser if raise_on_unsupported=False
     return TextDocumentParser()
 
 

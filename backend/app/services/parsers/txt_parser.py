@@ -31,13 +31,22 @@ class TextDocumentParser(BaseDocumentParser):
         mime_type: Optional[str] = None,
     ) -> bool:
         """Check if content or file extension corresponds to plain text."""
-        if filename and filename.lower().endswith(".txt"):
-            return True
-        if mime_type and mime_type.lower() in ("text/plain", "application/txt"):
-            return True
+        if filename:
+            if filename.lower().endswith(".txt"):
+                return True
+            if "." in filename:
+                return False
+
+        if mime_type:
+            if mime_type.lower() in ("text/plain", "application/txt"):
+                return True
+            return False
+
+        if isinstance(content, (bytes, bytearray)) and b"\x00" in content:
+            return False
 
         text = self.decode_content(content).strip()
-        # If it doesn't look like JSON, XML, or HTML, treat as plain text
+        # If it doesn't look like JSON, XML, HTML, or Markdown header, treat as plain text
         if (
             not (text.startswith("{") and text.endswith("}"))
             and not (text.startswith("[") and text.endswith("]"))
