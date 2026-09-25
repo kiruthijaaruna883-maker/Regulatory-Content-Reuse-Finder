@@ -28,6 +28,16 @@ from app.models.document_change import (
     ReviewerDecision,
     ValidationFinding,
 )
+from app.models.document import (
+    CanonicalSectionConcept,
+    RegulatoryChunk,
+    RegulatoryChunkType,
+    RegulatoryDocument,
+    RegulatoryProvenance,
+    RegulatorySection,
+    RegulatoryTable,
+    RegulatoryTableRow,
+)
 
 __all__ = [
     "KeyInformation",
@@ -52,4 +62,13 @@ __all__ = [
     "ApprovedChangeReport",
     "ValidationFinding",
     "RelatedOccurrence",
+    "CanonicalSectionConcept",
+    "RegulatoryChunk",
+    "RegulatoryChunkType",
+    "RegulatoryDocument",
+    "RegulatoryProvenance",
+    "RegulatorySection",
+    "RegulatoryTable",
+    "RegulatoryTableRow",
 ]
+
