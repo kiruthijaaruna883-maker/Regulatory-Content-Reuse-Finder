@@ -6,8 +6,7 @@ import {
   GitCompare,
   CheckSquare,
   GitPullRequest,
-  FileCheck2,
-  Database
+  FileCheck2
 } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import DocumentReview from './components/DocumentReview';
@@ -21,6 +20,7 @@ export default function App() {
   const [selectedCandidate, setSelectedCandidate] = useState(null);
   const [selectedSection, setSelectedSection] = useState(null);
   const [activeDecision, setActiveDecision] = useState(null);
+  const [comparisonContext, setComparisonContext] = useState(null);
 
   // Transition helper from Search/Dashboard to Comparison
   function handleSelectCandidateForComparison(candidate) {
@@ -36,7 +36,26 @@ export default function App() {
 
   // Transition helper from Comparison to Decision Panel
   function handleProceedToDecision(data) {
-    setSelectedCandidate(data.candidateItem);
+    const candidate = data.candidateItem || null;
+    setSelectedCandidate(candidate);
+    setComparisonContext({
+      targetText: data.targetText || null,
+      candidateText: data.candidateText || null,
+      differences: data.differences || [],
+      candidateItem: candidate,
+      analysisResult: data.analysisResult || null,
+      targetSection: selectedSection || (data.analysisResult?.target_section ? {
+        section: data.analysisResult.target_section,
+        document_name: data.analysisResult.target_document_name,
+        document_id: data.analysisResult.target_document_id,
+        content_id: data.analysisResult.target_content_id,
+        subsection: data.analysisResult.target_subsection,
+        location: data.analysisResult.target_location,
+        page: data.analysisResult.target_page,
+        content_type: data.analysisResult.target_content_type,
+        text: data.targetText,
+      } : null),
+    });
     setActiveTab('decision');
   }
 
@@ -138,7 +157,7 @@ export default function App() {
 
         {activeTab === 'decision' && (
           <DecisionPanel
-            comparisonData={{ targetSection: selectedSection, candidateItem: selectedCandidate }}
+            comparisonData={comparisonContext}
             onDecisionRecorded={handleDecisionRecorded}
           />
         )}
