@@ -75,17 +75,68 @@ export const api = {
   },
 
   /**
-   * Compare candidate items with target text using Agent 1
+   * Ingest multi-format document or pasted text into candidate store
+   * Uses FormData multipart payload without manually setting Content-Type
    */
-  async analyzeCandidates(targetText, candidates = [], sectionName = null) {
+  async ingestDocument(formData) {
+    const res = await fetch(`${API_BASE}/documents/ingest`, {
+      method: "POST",
+      body: formData,
+    });
+    return handleResponse(res);
+  },
+
+  /**
+   * Discover candidates across candidate store and live sources (DailyMed, openFDA)
+   */
+  async searchCandidates({
+    query,
+    source_filter = "all",
+    section = null,
+    target_text = null,
+    top_k = 10,
+  }) {
+    const payload = {
+      query: (query || "").trim(),
+      source_filter,
+      top_k,
+    };
+    if (section) payload.section = section;
+    if (target_text) payload.target_text = target_text;
+
+    const res = await fetch(`${API_BASE}/candidates/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return handleResponse(res);
+  },
+
+  /**
+   * Compare candidate items with target text using Agent 1
+   * Supports optional target provenance parameters for Phase 3 Step 4 traceability
+   */
+  async analyzeCandidates(targetText, candidates = [], sectionName = null, options = {}) {
+    const payload = {
+      target_text: targetText,
+      section_name: sectionName,
+      candidates,
+    };
+    if (options.target_content_id) payload.target_content_id = options.target_content_id;
+    if (options.document_name) payload.document_name = options.document_name;
+    if (options.document_id) payload.document_id = options.document_id;
+    if (options.subsection) payload.subsection = options.subsection;
+    if (options.location) payload.location = options.location;
+    if (options.page !== undefined && options.page !== null) payload.page = options.page;
+    if (options.content_type) payload.content_type = options.content_type;
+    if (options.retrieve_live !== undefined && options.retrieve_live !== null) payload.retrieve_live = options.retrieve_live;
+    if (options.source_filter) payload.source_filter = options.source_filter;
+    if (options.top_k !== undefined && options.top_k !== null) payload.top_k = options.top_k;
+
     const res = await fetch(`${API_BASE}/content/analyze`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        target_text: targetText,
-        section_name: sectionName,
-        candidates,
-      }),
+      body: JSON.stringify(payload),
     });
     return handleResponse(res);
   },

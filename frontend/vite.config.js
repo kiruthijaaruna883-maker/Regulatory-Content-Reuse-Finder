@@ -11,6 +11,7 @@ export default defineConfig({
       '/health': 'http://127.0.0.1:8000',
       '/content': 'http://127.0.0.1:8000',
       '/documents': 'http://127.0.0.1:8000',
+      '/candidates': 'http://127.0.0.1:8000',
       '/review': 'http://127.0.0.1:8000',
       '/changes': 'http://127.0.0.1:8000',
       '/history': 'http://127.0.0.1:8000',
