@@ -2,41 +2,201 @@
 
 Manages human regulatory professional decisions (Reuse, Adapt, Reject) and maintains
 the controlled revision lifecycle. Never autonomously applies regulatory changes.
+Durable persistence backed by SQLite through standard-library sqlite3.
 """
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from app.models.document_change import (
     ApprovedChangeReport,
     ProposedChange,
     ReviewDecisionType,
     ReviewerDecision,
 )
+from app.persistence.sqlite_store import WorkflowSQLiteStore
+
+
+class _ProposalsProxy:
+    """Dict-like proxy to maintain backwards compatibility with _proposals access."""
+
+    def __init__(self, store: WorkflowSQLiteStore):
+        self._store = store
+
+    def __getitem__(self, change_id: str) -> ProposedChange:
+        p = self._store.get_proposal(change_id)
+        if p is None:
+            raise KeyError(change_id)
+        return p
+
+    def __setitem__(self, change_id: str, proposal: ProposedChange) -> None:
+        self._store.save_proposal(proposal)
+
+    def __delitem__(self, change_id: str) -> None:
+        if not self._store.delete_proposal(change_id):
+            raise KeyError(change_id)
+
+    def get(self, change_id: str, default: Optional[ProposedChange] = None) -> Optional[ProposedChange]:
+        p = self._store.get_proposal(change_id)
+        return p if p is not None else default
+
+    def values(self) -> List[ProposedChange]:
+        return self._store.list_proposals()
+
+    def keys(self) -> List[str]:
+        return [p.change_id for p in self._store.list_proposals()]
+
+    def items(self):
+        return [(p.change_id, p) for p in self._store.list_proposals()]
+
+    def pop(self, change_id: str, default=None):
+        p = self._store.get_proposal(change_id)
+        if p is not None:
+            self._store.delete_proposal(change_id)
+            return p
+        return default
+
+    def clear(self) -> None:
+        self._store.clear_proposals()
+
+    def __len__(self) -> int:
+        return len(self._store.list_proposals())
+
+    def __contains__(self, change_id: str) -> bool:
+        return self._store.get_proposal(change_id) is not None
+
+    def __iter__(self):
+        return iter(self.keys())
+
+
+class _DecisionsProxy:
+    """Dict-like proxy to maintain backwards compatibility with _decisions access."""
+
+    def __init__(self, store: WorkflowSQLiteStore):
+        self._store = store
+
+    def __getitem__(self, decision_id: str) -> ReviewerDecision:
+        d = self._store.get_decision(decision_id)
+        if d is None:
+            raise KeyError(decision_id)
+        return d
+
+    def __setitem__(self, decision_id: str, decision: ReviewerDecision) -> None:
+        self._store.save_decision(decision)
+
+    def __delitem__(self, decision_id: str) -> None:
+        if not self._store.delete_decision(decision_id):
+            raise KeyError(decision_id)
+
+    def get(self, decision_id: str, default: Optional[ReviewerDecision] = None) -> Optional[ReviewerDecision]:
+        d = self._store.get_decision(decision_id)
+        return d if d is not None else default
+
+    def values(self) -> List[ReviewerDecision]:
+        return self._store.list_decisions()
+
+    def keys(self) -> List[str]:
+        return [d.decision_id for d in self._store.list_decisions()]
+
+    def items(self):
+        return [(d.decision_id, d) for d in self._store.list_decisions()]
+
+    def pop(self, decision_id: str, default=None):
+        d = self._store.get_decision(decision_id)
+        if d is not None:
+            self._store.delete_decision(decision_id)
+            return d
+        return default
+
+    def clear(self) -> None:
+        self._store.clear_decisions()
+
+    def __len__(self) -> int:
+        return len(self._store.list_decisions())
+
+    def __contains__(self, decision_id: str) -> bool:
+        return self._store.get_decision(decision_id) is not None
+
+    def __iter__(self):
+        return iter(self.keys())
+
+
+class _ReportsProxy:
+    """Dict-like proxy to maintain backwards compatibility with _reports access."""
+
+    def __init__(self, store: WorkflowSQLiteStore):
+        self._store = store
+
+    def __getitem__(self, report_id: str) -> ApprovedChangeReport:
+        r = self._store.get_report(report_id)
+        if r is None:
+            raise KeyError(report_id)
+        return r
+
+    def __setitem__(self, report_id: str, report: ApprovedChangeReport) -> None:
+        self._store.save_report(report)
+
+    def __delitem__(self, report_id: str) -> None:
+        if not self._store.delete_report(report_id):
+            raise KeyError(report_id)
+
+    def get(self, report_id: str, default: Optional[ApprovedChangeReport] = None) -> Optional[ApprovedChangeReport]:
+        r = self._store.get_report(report_id)
+        return r if r is not None else default
+
+    def values(self) -> List[ApprovedChangeReport]:
+        return self._store.list_reports()
+
+    def keys(self) -> List[str]:
+        return [r.report_id for r in self._store.list_reports()]
+
+    def items(self):
+        return [(r.report_id, r) for r in self._store.list_reports()]
+
+    def pop(self, report_id: str, default=None):
+        r = self._store.get_report(report_id)
+        if r is not None:
+            self._store.delete_report(report_id)
+            return r
+        return default
+
+    def clear(self) -> None:
+        self._store.clear_reports()
+
+    def __len__(self) -> int:
+        return len(self._store.list_reports())
+
+    def __contains__(self, report_id: str) -> bool:
+        return self._store.get_report(report_id) is not None
+
+    def __iter__(self):
+        return iter(self.keys())
 
 
 class ChangeManagerService:
-    """Manages reviewer decisions, proposal tracking, and authorized audit reports."""
+    """Manages reviewer decisions, proposal tracking, and authorized audit reports.
 
-    def __init__(self):
-        # In-memory storage for active session
-        self._decisions: Dict[str, ReviewerDecision] = {}
-        self._proposals: Dict[str, ProposedChange] = {}
-        self._reports: Dict[str, ApprovedChangeReport] = {}
+    Backed by durable SQLite persistence while preserving full service contract.
+    """
+
+    def __init__(self, db_path: Optional[str] = None):
+        self.store = WorkflowSQLiteStore(db_path=db_path)
+        self._decisions = _DecisionsProxy(self.store)
+        self._proposals = _ProposalsProxy(self.store)
+        self._reports = _ReportsProxy(self.store)
 
     def record_decision(self, decision: ReviewerDecision) -> ReviewerDecision:
         """Record a human regulatory professional's decision.
 
         Auditable for all decision types (REUSE, ADAPT, REJECT).
         """
-        self._decisions[decision.decision_id] = decision
-        return decision
+        return self.store.save_decision(decision)
 
     def list_decisions(self) -> List[ReviewerDecision]:
-        """List all recorded decisions in the current session."""
-        return list(self._decisions.values())
+        """List all recorded decisions in insertion order."""
+        return self.store.list_decisions()
 
     def get_decision(self, decision_id: str) -> Optional[ReviewerDecision]:
         """Fetch a specific decision by ID."""
-        return self._decisions.get(decision_id)
+        return self.store.get_decision(decision_id)
 
     def create_change_proposal(
         self,
@@ -70,12 +230,15 @@ class ChangeManagerService:
             rationale=rationale,
             status="PROPOSED",
         )
-        self._proposals[proposal.change_id] = proposal
-        return proposal
+        return self.store.save_proposal(proposal)
+
+    def save_proposal(self, proposal: ProposedChange) -> ProposedChange:
+        """Persist or update an existing change proposal."""
+        return self.store.save_proposal(proposal)
 
     def get_proposal(self, change_id: str) -> Optional[ProposedChange]:
         """Fetch proposal by ID."""
-        return self._proposals.get(change_id)
+        return self.store.get_proposal(change_id)
 
     def confirm_occurrences(
         self,
@@ -87,7 +250,7 @@ class ChangeManagerService:
         """Record reviewer confirmation or exclusion for detected related occurrences.
 
         Validates proposal, verifies occurrence ownership, updates statuses,
-        and recalculates impact analysis.
+        recalculates impact analysis, and persists to SQLite.
         """
         proposal = self.get_proposal(change_id)
         if not proposal:
@@ -132,38 +295,33 @@ class ChangeManagerService:
         proposal.impact_analysis = impact
         proposal.validation_findings = impact.findings
 
-        # Save back to in-memory store
-        self._proposals[proposal.change_id] = proposal
-        return proposal
+        # Save back to SQLite store
+        return self.store.save_proposal(proposal)
 
     def update_proposal_status(self, change_id: str, status: str) -> Optional[ProposedChange]:
         """Update proposal status (PROPOSED, PENDING_APPROVAL, APPROVED, REJECTED)."""
-        prop = self._proposals.get(change_id)
+        prop = self.get_proposal(change_id)
         if prop:
             prop.status = status
+            self.store.save_proposal(prop)
         return prop
 
     def list_proposals(self) -> List[ProposedChange]:
         """List all controlled change proposals."""
-        return list(self._proposals.values())
+        return self.store.list_proposals()
 
     def list_approved_proposals(self) -> List[ProposedChange]:
         """List proposals that have been explicitly approved."""
-        return [p for p in self._proposals.values() if p.status == "APPROVED"]
+        return self.store.list_proposals(status="APPROVED")
 
     def record_approved_report(self, report: ApprovedChangeReport) -> ApprovedChangeReport:
-        """Persist authorized Approved Change Report in session."""
-        self._reports[report.report_id] = report
-        return report
+        """Persist authorized Approved Change Report."""
+        return self.store.save_report(report)
 
     def get_latest_report(self) -> Optional[ApprovedChangeReport]:
         """Retrieve most recently generated report."""
-        if not self._reports:
-            return None
-        return list(self._reports.values())[-1]
+        return self.store.get_latest_report()
 
     def clear_session(self) -> None:
-        """Reset session storage."""
-        self._decisions.clear()
-        self._proposals.clear()
-        self._reports.clear()
+        """Reset workflow storage."""
+        self.store.clear_all()

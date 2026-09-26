@@ -26,6 +26,10 @@ class Settings(BaseSettings):
         default="http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173",
         description="Comma-separated allowed CORS origins",
     )
+    SQLITE_DB_PATH: str = Field(
+        default="backend/data/gpr_workflow.db",
+        description="Path to SQLite database file for workflow persistence",
+    )
 
     # Live External Regulatory Sources
     DAILYMED_BASE_URL: str = Field(

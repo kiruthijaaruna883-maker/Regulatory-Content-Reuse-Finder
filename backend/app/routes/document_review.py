@@ -153,7 +153,7 @@ async def analyze_change_proposal(payload: ChangeAnalyzeRequest) -> ProposedChan
             detail="Failed to formulate proposed change from decision.",
         )
 
-    change_manager._proposals[proposal.change_id] = proposal
+    change_manager.save_proposal(proposal)
     return proposal
 
 
@@ -278,6 +278,7 @@ async def approve_and_generate_report(payload: ApproveReportRequest) -> Approved
         # Mark proposals as approved
         for p in eligible_proposals:
             p.status = "APPROVED"
+            change_manager.update_proposal_status(p.change_id, "APPROVED")
         change_manager.record_approved_report(report)
         return report
     except ValueError as val_err:

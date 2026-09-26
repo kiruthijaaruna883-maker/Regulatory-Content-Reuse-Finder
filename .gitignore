@@ -66,3 +66,14 @@ pnpm-debug.log*
 # LangSmith & Evaluation local scratch
 .langsmith/
 evaluation/datasets/local/
+
+# SQLite Workflow Database
+backend/data/*.db
+backend/data/*.db-journal
+backend/data/*.db-wal
+backend/data/*.db-shm
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
