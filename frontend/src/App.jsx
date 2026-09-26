@@ -165,7 +165,7 @@ export default function App() {
         {activeTab === 'changes' && (
           <ChangeReview
             activeDecision={activeDecision}
-            onNavigateToReport={() => setActiveTab('report')}
+            comparisonContext={comparisonContext}
           />
         )}
 
