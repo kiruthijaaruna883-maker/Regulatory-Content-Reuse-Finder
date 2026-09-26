@@ -248,4 +248,40 @@ export const api = {
     const res = await fetch(`${API_BASE}/history`);
     return handleResponse(res);
   },
+
+  /**
+   * Download approved change report as PDF
+   * Returns { blob, filename } or throws Error
+   */
+  async downloadApprovedChangeReportPdf(reportId) {
+    if (!reportId) {
+      throw new Error("Report ID is required to download PDF.");
+    }
+    const res = await fetch(`${API_BASE}/changes/report/${encodeURIComponent(reportId)}/pdf`);
+    if (!res.ok) {
+      let errorDetail = `HTTP Error ${res.status}: ${res.statusText}`;
+      try {
+        const data = await res.json();
+        if (data.detail) errorDetail = data.detail;
+        else if (data.message) errorDetail = data.message;
+      } catch {
+        // Non-JSON error response
+      }
+      throw new Error(errorDetail);
+    }
+
+    let filename = `Approved_Change_Report_${reportId}.pdf`;
+    const disposition = res.headers.get("Content-Disposition");
+    if (disposition) {
+      const match = disposition.match(/filename="?([^";\n]+)"?/i);
+      if (match && match[1]) {
+        filename = match[1].trim();
+      }
+    }
+
+    const blob = await res.blob();
+    return { blob, filename };
+  },
 };
+
+export const downloadApprovedChangeReportPdf = api.downloadApprovedChangeReportPdf;

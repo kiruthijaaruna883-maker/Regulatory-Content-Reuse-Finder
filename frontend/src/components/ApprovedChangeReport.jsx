@@ -103,6 +103,36 @@ export default function ApprovedChangeReport({ approvedReport }) {
     downloadAnchor.remove();
   }
 
+  // PDF Download state & action
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfError, setPdfError] = useState(null);
+
+  async function handleDownloadPdf() {
+    if (!report?.report_id || !report?.approval_confirmation) {
+      return;
+    }
+
+    setPdfLoading(true);
+    setPdfError(null);
+
+    try {
+      const { blob, filename } = await api.downloadApprovedChangeReportPdf(report.report_id);
+      const url = window.URL.createObjectURL(blob);
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.href = url;
+      downloadAnchor.download = filename || `Approved_Change_Report_${report.report_id}.pdf`;
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to download PDF report:', err);
+      setPdfError(err.message || 'Failed to download approved change report PDF.');
+    } finally {
+      setPdfLoading(false);
+    }
+  }
+
   // Format ISO timestamp nicely if valid
   function formatTimestamp(ts) {
     if (!ts) return 'Not available in returned report';
@@ -153,10 +183,32 @@ export default function ApprovedChangeReport({ approvedReport }) {
           <button
             type="button"
             onClick={handleExportJson}
-            className="btn btn-primary"
+            className="btn btn-secondary"
             style={{ fontSize: '0.82rem' }}
           >
             <Download size={14} /> Export JSON Manifest
+          </button>
+          <button
+            type="button"
+            onClick={handleDownloadPdf}
+            className="btn btn-primary"
+            style={{ fontSize: '0.82rem' }}
+            disabled={!report || !report.report_id || !report.approval_confirmation || pdfLoading}
+            title={
+              !report || !report.report_id || !report.approval_confirmation
+                ? 'PDF download is only available for an approved change report'
+                : 'Download approved change report as PDF'
+            }
+          >
+            {pdfLoading ? (
+              <>
+                <RefreshCw size={13} className="animate-spin" /> Generating PDF...
+              </>
+            ) : (
+              <>
+                <Download size={14} /> Download PDF
+              </>
+            )}
           </button>
         </div>
       </div>
@@ -229,6 +281,28 @@ export default function ApprovedChangeReport({ approvedReport }) {
           </span>
         </button>
       </div>
+
+      {/* PDF Download Error Banner */}
+      {pdfError && (
+        <div
+          style={{
+            maxWidth: '920px',
+            margin: '0 auto 1rem auto',
+            padding: '0.75rem 1rem',
+            background: 'rgba(239, 68, 68, 0.12)',
+            border: '1px solid rgba(239, 68, 68, 0.3)',
+            borderRadius: 'var(--radius-sm)',
+            color: '#fca5a5',
+            fontSize: '0.8rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+          }}
+        >
+          <AlertCircle size={16} color="var(--color-danger)" />
+          <span>{pdfError}</span>
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* VIEW 1: APPROVED CHANGE MANIFEST (Step 6.7 Authentic Report & Proposals) */}
