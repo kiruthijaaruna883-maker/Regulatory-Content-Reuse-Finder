@@ -511,6 +511,7 @@ def test_proxy_backwards_compatibility(tmp_path):
     assert len(manager._proposals.values()) == 1
     # pop
     popped = manager._proposals.pop(prop.change_id)
+    assert popped is not None
     assert popped.change_id == prop.change_id
     assert len(manager._proposals) == 0
 
@@ -522,7 +523,9 @@ def test_proxy_backwards_compatibility(tmp_path):
     )
     manager._decisions[dec.decision_id] = dec
     assert len(manager._decisions) == 1
-    assert manager._decisions.get("dec_proxy_01").decision_id == "dec_proxy_01"
+    fetched_dec = manager._decisions.get("dec_proxy_01")
+    assert fetched_dec is not None
+    assert fetched_dec.decision_id == "dec_proxy_01"
     manager._decisions.pop("dec_proxy_01")
     assert len(manager._decisions) == 0
 
@@ -603,6 +606,7 @@ def test_sqlite_occurrence_confirmation_workflow(tmp_path):
     occ_map = {o.occurrence_id: o for o in reloaded.related_occurrences}
     assert occ_map["occ_wf_1"].status == "CONFIRMED"
     assert occ_map["occ_wf_2"].status == "EXCLUDED"
+    assert reloaded.impact_analysis is not None
     assert reloaded.impact_analysis.affected_sections_count == 2
     assert "Occurrence Review Notes" in reloaded.rationale
 
