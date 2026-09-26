@@ -94,6 +94,10 @@ class DifferenceItem(BaseModel):
         default=True,
         description="Flag indicating human regulatory professional attention is required",
     )
+    source_dimension: Optional[str] = Field(
+        default=None,
+        description="Originating comparison dimension: meaning, template, context, structure, format, key_information",
+    )
     # Backward compatibility alias for Phase 1 tests
     aspect: Optional[str] = Field(
         default=None,
@@ -147,6 +151,32 @@ class ObservedSourceFacts(BaseModel):
     extracted_dose: Optional[str] = Field(default=None, description="Dose observed in source")
     extracted_population: Optional[str] = Field(default=None, description="Target population observed in source")
     extracted_indication: Optional[str] = Field(default=None, description="Indication observed in source")
+    # Phase 3 Step 4 Optional Provenance Extensions:
+    content_id: Optional[str] = Field(default=None, description="Atomic content identifier of source candidate")
+    document_id: Optional[str] = Field(default=None, description="Identifier of source document")
+    subsection: Optional[str] = Field(default=None, description="Source subsection number or title")
+    page: Optional[int] = Field(default=None, description="Page number in source document if available")
+    content_type: Optional[str] = Field(default=None, description="Structural content type of source item")
+    structure_path: Optional[str] = Field(default=None, description="Hierarchical outline path in source document")
+    cross_sources: Optional[List[str]] = Field(default=None, description="Corroborating source repositories from deduplication")
+    duplicate_provenance: Optional[List[Dict[str, Any]]] = Field(default=None, description="Merged provenance records from duplicate references")
+
+
+class TargetSourceFacts(BaseModel):
+    """Direct, auditable facts observed from the internal target regulatory document/draft."""
+
+    target_content_id: Optional[str] = Field(default=None, description="Identifier of target content item or chunk")
+    target_document_id: Optional[str] = Field(default=None, description="Identifier of containing target document")
+    target_document_name: Optional[str] = Field(default=None, description="Title of target document")
+    target_section: Optional[str] = Field(default=None, description="Section heading in target document")
+    target_subsection: Optional[str] = Field(default=None, description="Subsection number or heading")
+    target_location: Optional[str] = Field(default=None, description="Physical location (e.g. Paragraph 1, Table 2)")
+    target_page: Optional[int] = Field(default=None, description="Page number in target document if available")
+    target_content_type: Optional[str] = Field(default=None, description="Structural content type (e.g. paragraph, bullet, table_row)")
+    extracted_drug: Optional[str] = Field(default=None, description="Drug or substance observed in target")
+    extracted_dose: Optional[str] = Field(default=None, description="Dose observed in target")
+    extracted_population: Optional[str] = Field(default=None, description="Target population observed in target")
+    extracted_indication: Optional[str] = Field(default=None, description="Indication observed in target")
 
 
 class ModelReasoning(BaseModel):
@@ -167,6 +197,10 @@ class StructuredEvidence(BaseModel):
     )
     observed_from_source: ObservedSourceFacts = Field(..., description="Direct facts verified in source")
     model_interpretation: ModelReasoning = Field(..., description="Reasoning grounded in observed facts")
+    target_facts: Optional[TargetSourceFacts] = Field(
+        default=None,
+        description="Direct facts observed from internal target document",
+    )
 
 
 # Kept for backward compatibility with Phase 1 tests
@@ -253,3 +287,11 @@ class ContentComparisonResult(BaseModel):
         default=0,
         description="Count of candidates where critical false-match discrepancies were detected",
     )
+    # Phase 3 Step 4 Optional Target Provenance Fields:
+    target_content_id: Optional[str] = Field(default=None, description="Identifier of target content item or chunk")
+    target_document_id: Optional[str] = Field(default=None, description="Identifier of containing target document")
+    target_document_name: Optional[str] = Field(default=None, description="Title of target document")
+    target_subsection: Optional[str] = Field(default=None, description="Subsection number or heading")
+    target_location: Optional[str] = Field(default=None, description="Physical location in target document")
+    target_page: Optional[int] = Field(default=None, description="Page number in target document if available")
+    target_content_type: Optional[str] = Field(default=None, description="Structural content type of target item")

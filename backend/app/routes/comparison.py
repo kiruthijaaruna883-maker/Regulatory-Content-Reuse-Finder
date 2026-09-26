@@ -22,6 +22,14 @@ class AnalyzeRequest(BaseModel):
     retrieve_live: bool = Field(default=False, description="Trigger on-demand live RAG retrieval if candidates are not provided")
     source_filter: str = Field(default="all", description="Live source filter: 'all', 'dailymed', or 'openfda'")
     top_k: Optional[int] = Field(default=None, description="Max candidates to retrieve")
+    # Phase 3 Step 4 Optional Target Provenance Fields:
+    target_content_id: Optional[str] = Field(default=None, description="Optional target content identifier")
+    document_name: Optional[str] = Field(default=None, description="Optional target document name")
+    document_id: Optional[str] = Field(default=None, description="Optional target document identifier")
+    subsection: Optional[str] = Field(default=None, description="Optional target subsection heading or number")
+    location: Optional[str] = Field(default=None, description="Optional target physical or structural location")
+    page: Optional[int] = Field(default=None, description="Optional target page number")
+    content_type: Optional[str] = Field(default=None, description="Optional target structural content type")
 
 
 class ComparePairRequest(BaseModel):
@@ -39,6 +47,13 @@ async def analyze_candidates(payload: AnalyzeRequest) -> ContentComparisonResult
                 target_text=payload.target_text,
                 candidates=payload.candidates,
                 section_name=payload.section_name,
+                target_content_id=payload.target_content_id,
+                target_document_id=payload.document_id,
+                target_document_name=payload.document_name,
+                target_subsection=payload.subsection,
+                target_location=payload.location,
+                target_page=payload.page,
+                target_content_type=payload.content_type,
             )
         else:
             # On-demand live RAG retrieval and analysis
@@ -47,6 +62,13 @@ async def analyze_candidates(payload: AnalyzeRequest) -> ContentComparisonResult
                 section_name=payload.section_name,
                 source_filter=payload.source_filter,
                 top_k=payload.top_k,
+                target_content_id=payload.target_content_id,
+                target_document_id=payload.document_id,
+                target_document_name=payload.document_name,
+                target_subsection=payload.subsection,
+                target_location=payload.location,
+                target_page=payload.page,
+                target_content_type=payload.content_type,
             )
     except Exception as exc:
         raise HTTPException(

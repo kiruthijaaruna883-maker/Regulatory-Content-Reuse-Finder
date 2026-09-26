@@ -89,6 +89,13 @@ class RegulatoryContentAnalysisAgent:
         section_name: Optional[str] = None,
         source_filter: str = "all",
         top_k: Optional[int] = None,
+        target_content_id: Optional[str] = None,
+        target_document_id: Optional[str] = None,
+        target_document_name: Optional[str] = None,
+        target_subsection: Optional[str] = None,
+        target_location: Optional[str] = None,
+        target_page: Optional[int] = None,
+        target_content_type: Optional[str] = None,
     ) -> ContentComparisonResult:
         """Complete Agent 1 pipeline: Extract -> Classify -> Live RAG Retrieve -> 6D Compare -> Evidence.
 
@@ -118,6 +125,13 @@ class RegulatoryContentAnalysisAgent:
             target_key_info=key_info,
             candidate_scores=scores_by_id,
             candidate_providers=providers_by_id,
+            target_content_id=target_content_id,
+            target_document_id=target_document_id,
+            target_document_name=target_document_name,
+            target_subsection=target_subsection,
+            target_location=target_location,
+            target_page=target_page,
+            target_content_type=target_content_type,
         )
 
     def analyze_and_compare(
@@ -128,6 +142,13 @@ class RegulatoryContentAnalysisAgent:
         target_key_info: Optional[KeyInformation] = None,
         candidate_scores: Optional[Dict[str, float]] = None,
         candidate_providers: Optional[Dict[str, str]] = None,
+        target_content_id: Optional[str] = None,
+        target_document_id: Optional[str] = None,
+        target_document_name: Optional[str] = None,
+        target_subsection: Optional[str] = None,
+        target_location: Optional[str] = None,
+        target_page: Optional[int] = None,
+        target_content_type: Optional[str] = None,
     ) -> ContentComparisonResult:
         """Run multi-dimensional comparison against provided candidate items with false-match protection."""
         sanitized_target = self.sanitize_untrusted_input(target_text)
@@ -148,6 +169,13 @@ class RegulatoryContentAnalysisAgent:
                 candidate=cand,
                 target_key_info=curr_key_info,
                 target_section=section_name,
+                target_content_id=target_content_id,
+                target_document_id=target_document_id,
+                target_document_name=target_document_name,
+                target_subsection=target_subsection,
+                target_location=target_location,
+                target_page=target_page,
+                target_content_type=target_content_type,
             )
 
             if false_match_warning:
@@ -186,4 +214,11 @@ class RegulatoryContentAnalysisAgent:
             candidates=comparison_candidates,
             summary_explanation=summary,
             false_matches_detected=false_matches_count,
+            target_content_id=target_content_id,
+            target_document_id=target_document_id,
+            target_document_name=target_document_name,
+            target_subsection=target_subsection,
+            target_location=target_location,
+            target_page=target_page,
+            target_content_type=target_content_type,
         )

@@ -22,6 +22,7 @@ from app.models.comparison import (
     MultiDimensionalMatch,
     ObservedSourceFacts,
     StructuredEvidence,
+    TargetSourceFacts,
 )
 from app.models.content import KeyInformation, RegulatoryContentItem
 from app.models.document import CanonicalSectionConcept
@@ -45,6 +46,13 @@ class MultiDimensionalComparator:
         candidate: Any,
         target_key_info: Optional[KeyInformation] = None,
         target_section: Optional[str] = None,
+        target_content_id: Optional[str] = None,
+        target_document_id: Optional[str] = None,
+        target_document_name: Optional[str] = None,
+        target_subsection: Optional[str] = None,
+        target_location: Optional[str] = None,
+        target_page: Optional[int] = None,
+        target_content_type: Optional[str] = None,
     ) -> Tuple[MultiDimensionalMatch, List[DifferenceItem], StructuredEvidence, Optional[str]]:
         """Run complete six-dimensional comparison between target text and candidate item.
 
@@ -64,6 +72,9 @@ class MultiDimensionalComparator:
             current_text=target_text,
             candidate_text=candidate.text,
         )
+        for d in key_diffs:
+            if not d.source_dimension:
+                d.source_dimension = "key_information"
 
         # 2. Evaluate Context Dimension (Prescribing vs Study, Specialized populations, Section concepts)
         context_eval, context_diffs = self._evaluate_context(
@@ -72,6 +83,9 @@ class MultiDimensionalComparator:
             curr_section=target_section,
             cand_section=candidate.section,
         )
+        for d in context_diffs:
+            if not d.source_dimension:
+                d.source_dimension = "context"
 
         # 3. Detect False Matches Across All Critical Regulatory Attributes
         false_match_reasons: List[str] = list(key_false_reasons)
@@ -120,6 +134,9 @@ class MultiDimensionalComparator:
             cand_info=cand_info,
             has_false_match=bool(false_match_warning),
         )
+        for d in meaning_diffs:
+            if not d.source_dimension:
+                d.source_dimension = "meaning"
 
         # 5. Evaluate Template Dimension (Regulatory-aware slot evaluation: Posology, Indication, Contraindication)
         template_eval, template_diffs = self._evaluate_template(
@@ -128,6 +145,9 @@ class MultiDimensionalComparator:
             curr_info=curr_info,
             cand_info=cand_info,
         )
+        for d in template_diffs:
+            if not d.source_dimension:
+                d.source_dimension = "template"
 
         # 6. Evaluate Structure Dimension (Section, Paragraph, Table, Bullet, Numbered/Stepwise)
         structure_eval, structure_diffs = self._evaluate_structure(
@@ -137,12 +157,18 @@ class MultiDimensionalComparator:
             cand_section=candidate.section,
             candidate_item=candidate,
         )
+        for d in structure_diffs:
+            if not d.source_dimension:
+                d.source_dimension = "structure"
 
         # 7. Evaluate Format Dimension (Quantitative vs Qualitative, Fixed vs Range, Shorthand vs Narrative)
         format_eval, format_diffs = self._evaluate_format(
             current_text=target_text,
             candidate_text=candidate.text,
         )
+        for d in format_diffs:
+            if not d.source_dimension:
+                d.source_dimension = "format"
 
         # Synthesize Overall Alignment
         overall_summary = self._generate_overall_summary(
@@ -180,6 +206,16 @@ class MultiDimensionalComparator:
             match=match_result,
             diffs=unique_diffs,
             false_match_warning=false_match_warning,
+            target_text=target_text,
+            curr_info=curr_info,
+            target_content_id=target_content_id,
+            target_document_id=target_document_id,
+            target_document_name=target_document_name,
+            target_section=target_section,
+            target_subsection=target_subsection,
+            target_location=target_location,
+            target_page=target_page,
+            target_content_type=target_content_type,
         )
 
         return match_result, unique_diffs, structured_evidence, false_match_warning
@@ -1177,8 +1213,20 @@ class MultiDimensionalComparator:
         match: MultiDimensionalMatch,
         diffs: List[DifferenceItem],
         false_match_warning: Optional[str],
+        target_text: Optional[str] = None,
+        curr_info: Optional[KeyInformation] = None,
+        target_content_id: Optional[str] = None,
+        target_document_id: Optional[str] = None,
+        target_document_name: Optional[str] = None,
+        target_section: Optional[str] = None,
+        target_subsection: Optional[str] = None,
+        target_location: Optional[str] = None,
+        target_page: Optional[int] = None,
+        target_content_type: Optional[str] = None,
     ) -> StructuredEvidence:
         """Assemble two-tier structured evidence keeping observed facts strictly separate from interpretation."""
+        cand_meta = candidate.metadata or {}
+
         # Tier 1: Facts directly observed from external source
         observed = ObservedSourceFacts(
             source=candidate.source,
@@ -1189,12 +1237,21 @@ class MultiDimensionalComparator:
             date=candidate.date,
             section=candidate.section,
             location=candidate.location,  # Page/paragraph/table/section (NOT LOINC code)
-            loinc_code=candidate.loinc_code or candidate.metadata.get("loinc_code"),
-            exact_quote=candidate.text[:300] + ("..." if len(candidate.text) > 300 else ""),
+            loinc_code=candidate.loinc_code or cand_meta.get("loinc_code"),
+            exact_quote=candidate.text,
             extracted_drug=cand_info.drug,
             extracted_dose=cand_info.dose,
             extracted_population=cand_info.population,
             extracted_indication=cand_info.indication,
+            # Phase 3 Step 4 Provenance extensions:
+            content_id=candidate.content_id,
+            document_id=candidate.document_id or cand_meta.get("document_id"),
+            subsection=candidate.subsection or cand_meta.get("section_number"),
+            page=candidate.page if candidate.page is not None else cand_meta.get("page"),
+            content_type=candidate.content_type or cand_meta.get("chunk_type"),
+            structure_path=cand_meta.get("structure_path"),
+            cross_sources=cand_meta.get("cross_sources"),
+            duplicate_provenance=cand_meta.get("duplicate_provenance"),
         )
 
         # Tier 2: Model / Algorithmic reasoning grounded in observed facts
@@ -1209,7 +1266,36 @@ class MultiDimensionalComparator:
             false_match_rationale=false_match_warning,
         )
 
+        # Target Source Facts (symmetric direct observed facts from target internal document)
+        target_facts: Optional[TargetSourceFacts] = None
+        if (
+            target_content_id is not None
+            or target_document_id is not None
+            or target_document_name is not None
+            or target_section is not None
+            or target_subsection is not None
+            or target_location is not None
+            or target_page is not None
+            or target_content_type is not None
+            or curr_info is not None
+        ):
+            target_facts = TargetSourceFacts(
+                target_content_id=target_content_id,
+                target_document_id=target_document_id,
+                target_document_name=target_document_name,
+                target_section=target_section,
+                target_subsection=target_subsection,
+                target_location=target_location,
+                target_page=target_page,
+                target_content_type=target_content_type,
+                extracted_drug=curr_info.drug if curr_info else None,
+                extracted_dose=curr_info.dose if curr_info else None,
+                extracted_population=curr_info.population if curr_info else None,
+                extracted_indication=curr_info.indication if curr_info else None,
+            )
+
         return StructuredEvidence(
             observed_from_source=observed,
             model_interpretation=reasoning,
+            target_facts=target_facts,
         )
