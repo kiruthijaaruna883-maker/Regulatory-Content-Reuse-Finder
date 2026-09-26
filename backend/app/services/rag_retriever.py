@@ -18,15 +18,23 @@ logger = logging.getLogger("rag_retriever")
 
 
 class LiveRAGRetriever:
-    """Retrieves candidates on-demand from live regulatory services and performs vector filtering."""
+    """Retrieves candidates on-demand from live regulatory services and ingested candidate store,
+    performing session vector filtering with full traceability.
+    """
 
     def __init__(
         self,
         source_service: Optional[RegulatorySourceService] = None,
         vector_store: Optional[VectorStore] = None,
+        candidate_store: Optional[Any] = None,
     ):
         self.sources = source_service or RegulatorySourceService()
         self.vector_store = vector_store or VectorStore()
+        if candidate_store is None:
+            from app.services.candidate_store import get_candidate_store
+            self.candidate_store = get_candidate_store()
+        else:
+            self.candidate_store = candidate_store
         self.extractor = KeyInformationExtractor()
         self.classifier = ContentClassifier()
 
@@ -39,6 +47,10 @@ class LiveRAGRetriever:
         source_filter: str = "all",
     ) -> List[Tuple[RegulatoryContentItem, float, str]]:
         """Execute on-demand RAG pipeline for the given target text.
+
+        Queries live external sources (DailyMed, openFDA) and the ingested document
+        candidate store, indexes candidates into the session vector store, and returns
+        ranked candidates.
 
         Returns list of tuples: (candidate_item, similarity_score, embedding_provider).
         """
@@ -55,18 +67,34 @@ class LiveRAGRetriever:
         if not query:
             return []
 
-        # 2. Query live trusted sources on demand (NO massive dataset download)
-        try:
-            search_result = await self.sources.search(
-                query=query,
-                source=source_filter,
-                section=section_hint,
-                limit=k * 2,
-            )
-            raw_candidates = search_result.items
-        except Exception as exc:
-            logger.warning("Live regulatory query failed: %s", exc)
-            return []
+        raw_candidates: List[RegulatoryContentItem] = []
+        norm_filter = (source_filter or "all").lower().strip()
+
+        # 2a. Query live external trusted sources on demand (DailyMed, openFDA)
+        if norm_filter in ("all", "dailymed", "openfda"):
+            try:
+                search_result = await self.sources.search(
+                    query=query,
+                    source=norm_filter if norm_filter != "all" else "all",
+                    section=section_hint,
+                    limit=k * 2,
+                )
+                raw_candidates.extend(search_result.items)
+            except Exception as exc:
+                logger.warning("Live regulatory query failed: %s", exc)
+
+        # 2b. Query ingested document candidate store (newly ingested regulatory documents)
+        if norm_filter in ("all", "ingested", "internal"):
+            try:
+                ingested_candidates = self.candidate_store.search(
+                    query=query,
+                    section=section_hint,
+                    limit=k * 2,
+                    target_text=target_text,
+                )
+                raw_candidates.extend(ingested_candidates)
+            except Exception as exc:
+                logger.warning("Ingested candidate store query failed: %s", exc)
 
         if not raw_candidates:
             return []
@@ -74,13 +102,13 @@ class LiveRAGRetriever:
         # 3. Enrich candidates with key information and classification
         enriched_candidates: List[RegulatoryContentItem] = []
         for cand in raw_candidates:
-            cand_key_info = self.extractor.extract(cand.text)
-            cand.key_information = cand_key_info
+            if not cand.key_information:
+                cand.key_information = self.extractor.extract(cand.text)
             if not cand.content_type:
                 cand.content_type = self.classifier.classify(cand.text, cand.section).value
             enriched_candidates.append(cand)
 
-        # 4. Index candidates into session vector store
+        # 4. Index candidates into ephemeral session vector store (isolated from persistent candidate store)
         self.vector_store.clear()
         self.vector_store.add_items(enriched_candidates)
 
