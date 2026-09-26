@@ -496,6 +496,25 @@ class ChangeManagerService:
         """Retrieve most recently generated report."""
         return self.store.get_latest_report()
 
+    def get_report(self, report_id: str) -> Optional[ApprovedChangeReport]:
+        """Retrieve an approved change report by ID."""
+        return self.store.get_report(report_id)
+
+    def list_audit_events_for_report(self, report: ApprovedChangeReport) -> List[AuditEvent]:
+        """Retrieve chronological audit events associated with an approved report and its changes."""
+        change_ids = {c.change_id for c in report.changes if getattr(c, "change_id", None)}
+        decision_ids = set(report.decision_ids or []) | {
+            c.decision_id for c in report.changes if getattr(c, "decision_id", None)
+        }
+        all_events = self.store.list_audit_events()
+        relevant_events = [
+            e for e in all_events
+            if (e.report_id == report.report_id)
+            or (e.change_id and e.change_id in change_ids)
+            or (e.decision_id and e.decision_id in decision_ids)
+        ]
+        return relevant_events
+
     def list_audit_events(self, limit: Optional[int] = None) -> List[AuditEvent]:
         """Retrieve audit history in chronological append order."""
         return self.store.list_audit_events(limit=limit)

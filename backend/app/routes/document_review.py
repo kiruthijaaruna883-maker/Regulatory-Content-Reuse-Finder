@@ -1,7 +1,7 @@
 """Document review, human decisions, and controlled change management routes."""
 
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Response, status
 from pydantic import BaseModel, Field
 from app.agents.document_change_agent import RegulatoryDocumentChangeAgent
 from app.models.content import RegulatoryContentItem
@@ -16,12 +16,14 @@ from app.models.document_change import (
 )
 from app.services.change_manager import ChangeManagerService
 from app.services.content_extraction import ContentExtractionService
+from app.services.pdf_generator import PDFReportGenerator
 
 router = APIRouter(tags=["Document Review & Change Management"])
 
 extractor = ContentExtractionService()
 change_manager = ChangeManagerService()
 change_agent = RegulatoryDocumentChangeAgent()
+pdf_generator = PDFReportGenerator()
 
 
 class DocumentUploadRequest(BaseModel):
@@ -307,6 +309,51 @@ async def approve_and_generate_report(payload: ApproveReportRequest) -> Approved
 )
 async def list_proposals() -> List[ProposedChange]:
     return change_manager.list_proposals()
+
+
+@router.get(
+    "/changes/report/{report_id}/pdf",
+    summary="Export audit-ready PDF representation of an approved change report",
+    response_class=Response,
+    responses={
+        200: {
+            "content": {"application/pdf": {}},
+            "description": "Deterministic PDF representation of the approved report and audit trail.",
+        },
+        400: {"description": "Report has not received explicit human regulatory approval."},
+        404: {"description": "Approved change report not found."},
+    },
+)
+async def export_approved_report_pdf(report_id: str) -> Response:
+    """Generate and return an audit-ready PDF for an already approved change report.
+
+    READ-ONLY: Does not mutate workflow state, create approvals, or emit audit events.
+    Enforces that the report exists and has explicit human approval confirmation.
+    """
+    report = change_manager.get_report(report_id)
+    if report is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Approved change report '{report_id}' not found.",
+        )
+
+    if not report.approval_confirmation:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Report '{report_id}' has not received explicit human regulatory approval confirmation.",
+        )
+
+    audit_events = change_manager.list_audit_events_for_report(report)
+    pdf_bytes = pdf_generator.generate(report=report, audit_events=audit_events)
+
+    filename = f"Approved_Change_Report_{report_id}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )
 
 
 @router.get(
