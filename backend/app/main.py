@@ -11,6 +11,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.config import settings
+from app.routes.candidate_discovery import router as candidate_discovery_router
 from app.routes.comparison import router as comparison_router
 from app.routes.document_review import router as document_review_router
 from app.routes.regulatory import router as regulatory_router
@@ -82,6 +83,7 @@ async def health_check() -> Dict[str, Any]:
 
 
 # Include functional routers
+app.include_router(candidate_discovery_router)
 app.include_router(regulatory_router)
 app.include_router(comparison_router)
 app.include_router(document_review_router)

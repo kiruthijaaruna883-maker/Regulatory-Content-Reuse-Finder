@@ -38,6 +38,10 @@ from app.models.document import (
     RegulatoryTable,
     RegulatoryTableRow,
 )
+from app.models.ingest import (
+    CandidateSearchRequest,
+    DocumentIngestResponse,
+)
 
 __all__ = [
     "KeyInformation",
@@ -70,5 +74,7 @@ __all__ = [
     "RegulatorySection",
     "RegulatoryTable",
     "RegulatoryTableRow",
+    "DocumentIngestResponse",
+    "CandidateSearchRequest",
 ]
 
