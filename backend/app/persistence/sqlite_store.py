@@ -13,6 +13,11 @@ import sqlite3
 from typing import Any, Dict, List, Optional
 
 from app.config import settings
+from app.models.audit import (
+    AuditEvent,
+    AuditVerificationResult,
+    compute_event_hash,
+)
 from app.models.document_change import (
     ApprovedChangeReport,
     ChangeImpact,
@@ -142,8 +147,31 @@ class WorkflowSQLiteStore:
                 );
             """)
 
-            if version == 0:
-                cursor.execute("PRAGMA user_version = 1;")
+            # 4. Tamper-evident audit events table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS audit_events (
+                    event_id TEXT PRIMARY KEY,
+                    event_type TEXT NOT NULL,
+                    occurred_at TEXT NOT NULL,
+                    change_id TEXT,
+                    decision_id TEXT,
+                    report_id TEXT,
+                    reviewer_name TEXT,
+                    previous_status TEXT,
+                    new_status TEXT,
+                    details TEXT NOT NULL,
+                    previous_state TEXT,
+                    new_state TEXT,
+                    previous_event_hash TEXT,
+                    event_hash TEXT NOT NULL
+                );
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_change_id ON audit_events(change_id);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_event_type ON audit_events(event_type);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_occurred_at ON audit_events(occurred_at);")
+
+            if version < 2:
+                cursor.execute("PRAGMA user_version = 2;")
 
     # =========================================================================
     # DECISIONS PERSISTENCE
@@ -340,13 +368,300 @@ class WorkflowSQLiteStore:
             cursor.execute("DELETE FROM approved_reports;")
 
     # =========================================================================
+    # AUDIT TRAIL PERSISTENCE (PHASE 4 STEP 5)
+    # =========================================================================
+
+    def _hydrate_audit_event(self, row: sqlite3.Row) -> AuditEvent:
+        """Deserialize database row into AuditEvent."""
+        details = json.loads(row["details"]) if row["details"] else {}
+        prev_state = json.loads(row["previous_state"]) if row["previous_state"] else None
+        new_state = json.loads(row["new_state"]) if row["new_state"] else None
+        return AuditEvent(
+            event_id=row["event_id"],
+            event_type=row["event_type"],
+            occurred_at=row["occurred_at"],
+            change_id=row["change_id"],
+            decision_id=row["decision_id"],
+            report_id=row["report_id"],
+            reviewer_name=row["reviewer_name"],
+            previous_status=row["previous_status"],
+            new_status=row["new_status"],
+            details=details,
+            previous_state=prev_state,
+            new_state=new_state,
+            previous_event_hash=row["previous_event_hash"],
+            event_hash=row["event_hash"],
+        )
+
+    def append_audit_event(
+        self,
+        event_type: str,
+        change_id: Optional[str] = None,
+        decision_id: Optional[str] = None,
+        report_id: Optional[str] = None,
+        reviewer_name: Optional[str] = None,
+        previous_status: Optional[str] = None,
+        new_status: Optional[str] = None,
+        details: Optional[Dict[str, Any]] = None,
+        previous_state: Optional[Dict[str, Any]] = None,
+        new_state: Optional[Dict[str, Any]] = None,
+        occurred_at: Optional[str] = None,
+        event_id: Optional[str] = None,
+    ) -> AuditEvent:
+        """Append an audit event with sequential SHA-256 hash chaining inside a single transaction."""
+        from uuid import uuid4
+
+        event_id = event_id or f"evt_{uuid4().hex[:12]}"
+        occurred_at = occurred_at or datetime.now(timezone.utc).isoformat()
+        details_dict = details or {}
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            # Fetch latest event's hash for hash chaining
+            cursor.execute("SELECT event_hash FROM audit_events ORDER BY rowid DESC LIMIT 1;")
+            last_row = cursor.fetchone()
+            previous_event_hash = last_row["event_hash"] if last_row else None
+
+            event_hash = compute_event_hash(
+                event_id=event_id,
+                event_type=event_type,
+                occurred_at=occurred_at,
+                change_id=change_id,
+                decision_id=decision_id,
+                report_id=report_id,
+                reviewer_name=reviewer_name,
+                previous_status=previous_status,
+                new_status=new_status,
+                details=details_dict,
+                previous_state=previous_state,
+                new_state=new_state,
+                previous_event_hash=previous_event_hash,
+            )
+
+            event = AuditEvent(
+                event_id=event_id,
+                event_type=event_type,
+                occurred_at=occurred_at,
+                change_id=change_id,
+                decision_id=decision_id,
+                report_id=report_id,
+                reviewer_name=reviewer_name,
+                previous_status=previous_status,
+                new_status=new_status,
+                details=details_dict,
+                previous_state=previous_state,
+                new_state=new_state,
+                previous_event_hash=previous_event_hash,
+                event_hash=event_hash,
+            )
+
+            details_json = json.dumps(details_dict, sort_keys=True, separators=(",", ":"))
+            prev_state_json = (
+                json.dumps(previous_state, sort_keys=True, separators=(",", ":"))
+                if previous_state is not None
+                else None
+            )
+            new_state_json = (
+                json.dumps(new_state, sort_keys=True, separators=(",", ":"))
+                if new_state is not None
+                else None
+            )
+
+            cursor.execute("""
+                INSERT INTO audit_events (
+                    event_id, event_type, occurred_at, change_id, decision_id, report_id,
+                    reviewer_name, previous_status, new_status, details, previous_state,
+                    new_state, previous_event_hash, event_hash
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """, (
+                event.event_id,
+                event.event_type,
+                event.occurred_at,
+                event.change_id,
+                event.decision_id,
+                event.report_id,
+                event.reviewer_name,
+                event.previous_status,
+                event.new_status,
+                details_json,
+                prev_state_json,
+                new_state_json,
+                event.previous_event_hash,
+                event.event_hash,
+            ))
+            return event
+
+    def record_audit_event(self, event: AuditEvent) -> AuditEvent:
+        """Directly insert a constructed AuditEvent (used in tamper simulation tests)."""
+        details_json = json.dumps(event.details or {}, sort_keys=True, separators=(",", ":"))
+        prev_state_json = (
+            json.dumps(event.previous_state, sort_keys=True, separators=(",", ":"))
+            if event.previous_state is not None
+            else None
+        )
+        new_state_json = (
+            json.dumps(event.new_state, sort_keys=True, separators=(",", ":"))
+            if event.new_state is not None
+            else None
+        )
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO audit_events (
+                    event_id, event_type, occurred_at, change_id, decision_id, report_id,
+                    reviewer_name, previous_status, new_status, details, previous_state,
+                    new_state, previous_event_hash, event_hash
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """, (
+                event.event_id,
+                event.event_type,
+                event.occurred_at,
+                event.change_id,
+                event.decision_id,
+                event.report_id,
+                event.reviewer_name,
+                event.previous_status,
+                event.new_status,
+                details_json,
+                prev_state_json,
+                new_state_json,
+                event.previous_event_hash,
+                event.event_hash,
+            ))
+        return event
+
+    def get_audit_event(self, event_id: str) -> Optional[AuditEvent]:
+        """Fetch a single audit event by ID."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM audit_events WHERE event_id = ?;", (event_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return self._hydrate_audit_event(row)
+
+    def list_audit_events(self, limit: Optional[int] = None) -> List[AuditEvent]:
+        """List audit events in chronological append order."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            if limit and limit > 0:
+                cursor.execute("SELECT * FROM audit_events ORDER BY rowid ASC LIMIT ?;", (limit,))
+            else:
+                cursor.execute("SELECT * FROM audit_events ORDER BY rowid ASC;")
+            rows = cursor.fetchall()
+            return [self._hydrate_audit_event(row) for row in rows]
+
+    def list_audit_events_by_change(self, change_id: str) -> List[AuditEvent]:
+        """List audit events related to a specific change proposal ID."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM audit_events WHERE change_id = ? ORDER BY rowid ASC;",
+                (change_id,),
+            )
+            rows = cursor.fetchall()
+            return [self._hydrate_audit_event(row) for row in rows]
+
+    def get_latest_audit_event(self) -> Optional[AuditEvent]:
+        """Fetch the most recent audit event in the chain."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM audit_events ORDER BY rowid DESC LIMIT 1;")
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return self._hydrate_audit_event(row)
+
+    def verify_hash_chain(self) -> AuditVerificationResult:
+        """Verify append-only hash chain integrity across all audit events.
+
+        Detects:
+        - modified event contents
+        - modified event_hash
+        - broken previous_event_hash linkage
+        - missing, deleted, or reordered events
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM audit_events ORDER BY rowid ASC;")
+            rows = cursor.fetchall()
+
+        if not rows:
+            return AuditVerificationResult(
+                valid=True,
+                checked_event_count=0,
+                first_invalid_event_id=None,
+                reason=None,
+            )
+
+        events = [self._hydrate_audit_event(row) for row in rows]
+        for idx, event in enumerate(events):
+            # 1. Verify previous_event_hash linkage
+            if idx == 0:
+                if event.previous_event_hash is not None and event.previous_event_hash != "":
+                    return AuditVerificationResult(
+                        valid=False,
+                        checked_event_count=0,
+                        first_invalid_event_id=event.event_id,
+                        reason="Genesis event has non-empty previous_event_hash.",
+                    )
+            else:
+                expected_prev_hash = events[idx - 1].event_hash
+                if event.previous_event_hash != expected_prev_hash:
+                    return AuditVerificationResult(
+                        valid=False,
+                        checked_event_count=idx,
+                        first_invalid_event_id=event.event_id,
+                        reason=(
+                            f"Broken hash chain link at event '{event.event_id}'. "
+                            f"Expected previous_event_hash='{expected_prev_hash}', got '{event.previous_event_hash}'."
+                        ),
+                    )
+
+            # 2. Recompute and verify event_hash against canonical event content
+            computed_hash = compute_event_hash(
+                event_id=event.event_id,
+                event_type=event.event_type,
+                occurred_at=event.occurred_at,
+                change_id=event.change_id,
+                decision_id=event.decision_id,
+                report_id=event.report_id,
+                reviewer_name=event.reviewer_name,
+                previous_status=event.previous_status,
+                new_status=event.new_status,
+                details=event.details,
+                previous_state=event.previous_state,
+                new_state=event.new_state,
+                previous_event_hash=event.previous_event_hash,
+            )
+            if event.event_hash != computed_hash:
+                return AuditVerificationResult(
+                    valid=False,
+                    checked_event_count=idx,
+                    first_invalid_event_id=event.event_id,
+                    reason=(
+                        f"Tampered event payload or hash at event '{event.event_id}'. "
+                        f"Stored hash '{event.event_hash}' does not match computed hash '{computed_hash}'."
+                    ),
+                )
+
+        return AuditVerificationResult(
+            valid=True,
+            checked_event_count=len(events),
+            first_invalid_event_id=None,
+            reason=None,
+        )
+
+    # =========================================================================
     # SESSION RESET
     # =========================================================================
 
-    def clear_all(self) -> None:
+    def clear_all(self, include_audit: bool = True) -> None:
         """Reset all workflow tables."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM decisions;")
             cursor.execute("DELETE FROM proposals;")
             cursor.execute("DELETE FROM approved_reports;")
+            if include_audit:
+                cursor.execute("DELETE FROM audit_events;")

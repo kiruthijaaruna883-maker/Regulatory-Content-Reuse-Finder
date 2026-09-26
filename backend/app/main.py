@@ -15,6 +15,7 @@ from app.routes.candidate_discovery import router as candidate_discovery_router
 from app.routes.comparison import router as comparison_router
 from app.routes.document_review import router as document_review_router
 from app.routes.regulatory import router as regulatory_router
+from app.routes.audit import router as audit_router
 from app.services.regulatory_source import RegulatorySourceService
 
 # Configure structured logging
@@ -87,6 +88,7 @@ app.include_router(candidate_discovery_router)
 app.include_router(regulatory_router)
 app.include_router(comparison_router)
 app.include_router(document_review_router)
+app.include_router(audit_router)
 
 
 if __name__ == "__main__":

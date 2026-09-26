@@ -43,6 +43,12 @@ from app.models.ingest import (
     CandidateSearchRequest,
     DocumentIngestResponse,
 )
+from app.models.audit import (
+    AuditEvent,
+    AuditEventType,
+    AuditVerificationResult,
+    compute_event_hash,
+)
 
 __all__ = [
     "KeyInformation",
@@ -78,5 +84,10 @@ __all__ = [
     "RegulatoryTableRow",
     "DocumentIngestResponse",
     "CandidateSearchRequest",
+    "AuditEvent",
+    "AuditEventType",
+    "AuditVerificationResult",
+    "compute_event_hash",
 ]
+
 

@@ -220,7 +220,9 @@ async def confirm_occurrences(payload: ConfirmOccurrencesRequest) -> ProposedCha
 )
 async def validate_change(proposal: ProposedChange) -> ChangeImpact:
     """Run validation engine and assess impact."""
-    return change_agent.assess_impact_and_validate(proposal)
+    impact = change_agent.assess_impact_and_validate(proposal)
+    change_manager.record_validation(proposal, impact)
+    return impact
 
 
 @router.post(
@@ -275,10 +277,15 @@ async def approve_and_generate_report(payload: ApproveReportRequest) -> Approved
             approved_changes=eligible_proposals,
             audit_notes=payload.audit_notes,
         )
-        # Mark proposals as approved
+        # Mark proposals as approved and record audit transitions
         for p in eligible_proposals:
             p.status = "APPROVED"
-            change_manager.update_proposal_status(p.change_id, "APPROVED")
+            change_manager.update_proposal_status(
+                p.change_id,
+                "APPROVED",
+                reviewer_name=payload.approver_name,
+                notes=payload.audit_notes,
+            )
         change_manager.record_approved_report(report)
         return report
     except ValueError as val_err:
