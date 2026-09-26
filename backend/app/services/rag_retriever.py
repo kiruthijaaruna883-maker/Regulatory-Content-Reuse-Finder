@@ -27,6 +27,7 @@ class LiveRAGRetriever:
         source_service: Optional[RegulatorySourceService] = None,
         vector_store: Optional[VectorStore] = None,
         candidate_store: Optional[Any] = None,
+        deduplicator: Optional[Any] = None,
     ):
         self.sources = source_service or RegulatorySourceService()
         self.vector_store = vector_store or VectorStore()
@@ -35,6 +36,11 @@ class LiveRAGRetriever:
             self.candidate_store = get_candidate_store()
         else:
             self.candidate_store = candidate_store
+        if deduplicator is None:
+            from app.services.candidate_deduplicator import get_candidate_deduplicator
+            self.deduplicator = get_candidate_deduplicator()
+        else:
+            self.deduplicator = deduplicator
         self.extractor = KeyInformationExtractor()
         self.classifier = ContentClassifier()
 
@@ -69,6 +75,7 @@ class LiveRAGRetriever:
 
         raw_candidates: List[RegulatoryContentItem] = []
         norm_filter = (source_filter or "all").lower().strip()
+        fetch_limit = max(k * 2, 10)
 
         # 2a. Query live external trusted sources on demand (DailyMed, openFDA)
         if norm_filter in ("all", "dailymed", "openfda"):
@@ -77,7 +84,7 @@ class LiveRAGRetriever:
                     query=query,
                     source=norm_filter if norm_filter != "all" else "all",
                     section=section_hint,
-                    limit=k * 2,
+                    limit=fetch_limit,
                 )
                 raw_candidates.extend(search_result.items)
             except Exception as exc:
@@ -89,7 +96,7 @@ class LiveRAGRetriever:
                 ingested_candidates = self.candidate_store.search(
                     query=query,
                     section=section_hint,
-                    limit=k * 2,
+                    limit=fetch_limit,
                     target_text=target_text,
                 )
                 raw_candidates.extend(ingested_candidates)
@@ -108,11 +115,14 @@ class LiveRAGRetriever:
                 cand.content_type = self.classifier.classify(cand.text, cand.section).value
             enriched_candidates.append(cand)
 
-        # 4. Index candidates into ephemeral session vector store (isolated from persistent candidate store)
-        self.vector_store.clear()
-        self.vector_store.add_items(enriched_candidates)
+        # 4. Cross-source candidate deduplication with provenance merging
+        deduped_candidates = self.deduplicator.deduplicate(enriched_candidates)
 
-        # 5. Retrieve top-k candidates by similarity
+        # 5. Index candidates into ephemeral session vector store (isolated from persistent candidate store)
+        self.vector_store.clear()
+        self.vector_store.add_items(deduped_candidates)
+
+        # 6. Retrieve top-k candidates by similarity
         results = self.vector_store.search(
             query=target_text,
             top_k=k,
@@ -120,7 +130,7 @@ class LiveRAGRetriever:
         )
 
         # Fallback: if similarity threshold filtered all items, return top candidate directly
-        if not results and enriched_candidates:
-            results = [(enriched_candidates[0], 0.30, self.vector_store.get_embedding_provider_name())]
+        if not results and deduped_candidates:
+            results = [(deduped_candidates[0], 0.30, self.vector_store.get_embedding_provider_name())]
 
         return results
