@@ -22,6 +22,7 @@ from app.models.comparison import (
 from app.models.document_change import (
     ApprovedChangeReport,
     ChangeImpact,
+    ConfirmOccurrencesRequest,
     ProposedChange,
     RelatedOccurrence,
     ReviewDecisionType,
@@ -62,6 +63,7 @@ __all__ = [
     "ReviewDecisionType",
     "ReviewerDecision",
     "ProposedChange",
+    "ConfirmOccurrencesRequest",
     "ChangeImpact",
     "ApprovedChangeReport",
     "ValidationFinding",

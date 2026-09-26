@@ -73,9 +73,19 @@ export default function ChangeReview({ activeDecision, comparisonContext, onRepo
     try {
       const data = await api.listProposals();
       setProposals(data);
+      const initialSelections = {};
       for (const p of data) {
+        if (p.related_occurrences) {
+          p.related_occurrences.forEach((occ, idx) => {
+            const key = occ.occurrence_id || `${p.change_id}_occ_${idx}`;
+            if (occ.status === 'CONFIRMED' || occ.status === 'EXCLUDED') {
+              initialSelections[key] = occ.status;
+            }
+          });
+        }
         handleValidate(p);
       }
+      setOccurrenceSelections((prev) => ({ ...initialSelections, ...prev }));
     } catch (err) {
       console.error('Failed to load proposals:', err);
     } finally {
@@ -144,12 +154,51 @@ export default function ChangeReview({ activeDecision, comparisonContext, onRepo
     }
   }
 
-  // Handle human confirmation toggle per related occurrence (frontend review state only)
-  function handleToggleOccurrenceConfirmation(occKey, choice) {
+  // Handle human confirmation toggle per related occurrence and persist to backend
+  async function handleToggleOccurrenceConfirmation(prop, occKey, choice) {
+    // 1. Maintain local selection behavior immediately
     setOccurrenceSelections((prev) => ({
       ...prev,
       [occKey]: choice,
     }));
+
+    // 2. Persist reviewer occurrence decisions in backend proposal state
+    try {
+      const relatedOccs = prop.related_occurrences || [];
+      const confirmed_ids = [];
+      const excluded_ids = [];
+
+      relatedOccs.forEach((occ, idx) => {
+        const key = occ.occurrence_id || `${prop.change_id}_occ_${idx}`;
+        const occStatus = key === occKey ? choice : (occurrenceSelections[key] || occ.status);
+        if (occStatus === 'CONFIRMED') {
+          confirmed_ids.push(occ.occurrence_id);
+        } else if (occStatus === 'EXCLUDED') {
+          excluded_ids.push(occ.occurrence_id);
+        }
+      });
+
+      const updatedProp = await api.confirmOccurrences({
+        change_id: prop.change_id,
+        confirmed_occurrence_ids: confirmed_ids,
+        excluded_occurrence_ids: excluded_ids,
+      });
+
+      // 3. Replace stale proposal state with returned backend state
+      setProposals((prev) =>
+        prev.map((p) => (p.change_id === updatedProp.change_id ? updatedProp : p))
+      );
+
+      // 4. Update impactResults with recalculated impact analysis
+      if (updatedProp.impact_analysis) {
+        setImpactResults((prev) => ({
+          ...prev,
+          [updatedProp.change_id]: updatedProp.impact_analysis,
+        }));
+      }
+    } catch (err) {
+      console.error('Failed to persist occurrence confirmation:', err);
+    }
   }
 
   // Step 6.7: Explicit Human Regulatory Approval Handler
@@ -193,7 +242,7 @@ export default function ChangeReview({ activeDecision, comparisonContext, onRepo
           ? relatedOccs
               .map((occ, idx) => {
                 const key = occ.occurrence_id || `${prop.change_id}_occ_${idx}`;
-                const status = occurrenceSelections[key];
+                const status = occurrenceSelections[key] || (occ.status !== 'PENDING' ? occ.status : undefined);
                 return `[${occ.section} (${occ.match_type})]: ${
                   status === 'CONFIRMED' ? 'CONFIRMED FOR CHANGE' : 'EXCLUDED/PRESERVED'
                 }`;
@@ -398,15 +447,17 @@ export default function ChangeReview({ activeDecision, comparisonContext, onRepo
             // Calculate occurrence resolution status for Step 6.7 handoff
             const confirmedOccs = relatedOccs.filter((occ, idx) => {
               const key = occ.occurrence_id || `${prop.change_id}_occ_${idx}`;
-              return occurrenceSelections[key] === 'CONFIRMED';
+              const sel = occurrenceSelections[key] || (occ.status !== 'PENDING' ? occ.status : undefined);
+              return sel === 'CONFIRMED';
             });
             const excludedOccs = relatedOccs.filter((occ, idx) => {
               const key = occ.occurrence_id || `${prop.change_id}_occ_${idx}`;
-              return occurrenceSelections[key] === 'EXCLUDED';
+              const sel = occurrenceSelections[key] || (occ.status !== 'PENDING' ? occ.status : undefined);
+              return sel === 'EXCLUDED';
             });
             const unresolvedOccs = relatedOccs.filter((occ, idx) => {
               const key = occ.occurrence_id || `${prop.change_id}_occ_${idx}`;
-              const sel = occurrenceSelections[key];
+              const sel = occurrenceSelections[key] || (occ.status !== 'PENDING' ? occ.status : undefined);
               return sel !== 'CONFIRMED' && sel !== 'EXCLUDED';
             });
 
@@ -652,7 +703,7 @@ export default function ChangeReview({ activeDecision, comparisonContext, onRepo
                     <div>
                       {relatedOccs.map((occ, idx) => {
                         const occKey = occ.occurrence_id || `${prop.change_id}_occ_${idx}`;
-                        const currentSelection = occurrenceSelections[occKey]; // undefined | 'CONFIRMED' | 'EXCLUDED'
+                        const currentSelection = occurrenceSelections[occKey] || (occ.status !== 'PENDING' ? occ.status : undefined); // undefined | 'CONFIRMED' | 'EXCLUDED'
 
                         return (
                           <div
@@ -749,7 +800,7 @@ export default function ChangeReview({ activeDecision, comparisonContext, onRepo
                                     type="radio"
                                     name={`occ_choice_${occKey}`}
                                     checked={currentSelection === 'CONFIRMED'}
-                                    onChange={() => handleToggleOccurrenceConfirmation(occKey, 'CONFIRMED')}
+                                    onChange={() => handleToggleOccurrenceConfirmation(prop, occKey, 'CONFIRMED')}
                                   />
                                   <span style={{ color: currentSelection === 'CONFIRMED' ? 'var(--color-success)' : 'var(--text-secondary)' }}>
                                     Confirm for coordinated change
@@ -761,7 +812,7 @@ export default function ChangeReview({ activeDecision, comparisonContext, onRepo
                                     type="radio"
                                     name={`occ_choice_${occKey}`}
                                     checked={currentSelection === 'EXCLUDED'}
-                                    onChange={() => handleToggleOccurrenceConfirmation(occKey, 'EXCLUDED')}
+                                    onChange={() => handleToggleOccurrenceConfirmation(prop, occKey, 'EXCLUDED')}
                                   />
                                   <span style={{ color: currentSelection === 'EXCLUDED' ? 'var(--color-danger)' : 'var(--text-secondary)' }}>
                                     Exclude / preserve

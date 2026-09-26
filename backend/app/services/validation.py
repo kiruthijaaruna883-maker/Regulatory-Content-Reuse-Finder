@@ -133,7 +133,26 @@ class ValidationService:
         if proposal.document_name:
             affected_docs_set.add(proposal.document_name)
 
+        has_reviewed_occurrences = any(
+            getattr(occ, "status", "PENDING") in ("CONFIRMED", "EXCLUDED")
+            for occ in proposal.related_occurrences
+        )
+
         for occ in proposal.related_occurrences:
+            occ_status = getattr(occ, "status", "PENDING")
+
+            # EXCLUDED occurrences are NEVER included in coordinated-change impact
+            if occ_status == "EXCLUDED":
+                continue
+
+            # If review has begun (some confirmed or excluded), only CONFIRMED occurrences are included
+            if has_reviewed_occurrences and occ_status != "CONFIRMED":
+                potential_impacts.append(
+                    f"Pending occurrence in section '{occ.section}' requires reviewer confirmation or exclusion."
+                )
+                continue
+
+            # This occurrence contributes to the coordinated change
             affected_sections_set.add(occ.section)
             if occ.document_name:
                 affected_docs_set.add(occ.document_name)
@@ -151,13 +170,21 @@ class ValidationService:
 
         reviewer_attention = bool(any(f.severity in ("WARNING", "ERROR") for f in findings) or potential_impacts)
 
+        if has_reviewed_occurrences:
+            confirmed_occs_count = sum(
+                1 for occ in proposal.related_occurrences if getattr(occ, "status", "PENDING") == "CONFIRMED"
+            )
+            affected_content_count = 1 + confirmed_occs_count
+        else:
+            affected_content_count = 1 + len(proposal.related_occurrences)
+
         return ChangeImpact(
             risk_level=risk_level,
             affected_sections_count=len(affected_sections_set),
             affected_sections=sorted(list(affected_sections_set)),
             affected_occurrences=proposal.related_occurrences,
             affected_documents=sorted(list(affected_docs_set)),
-            affected_content_count=1 + len(proposal.related_occurrences),
+            affected_content_count=affected_content_count,
             observed_impacts=observed_impacts,
             potential_impacts=potential_impacts,
             reviewer_attention_required=reviewer_attention,
@@ -254,5 +281,40 @@ class ValidationService:
                         passed=False,
                     )
                 )
+
+        # Check that no proposals have unresolved / PENDING occurrences
+        pending_occs = []
+        for p in proposals:
+            for occ in p.related_occurrences:
+                if getattr(occ, "status", "PENDING") == "PENDING":
+                    pending_occs.append(f"{p.change_id}: {occ.section} ({occ.occurrence_id})")
+        if pending_occs:
+            findings.append(
+                ValidationFinding(
+                    rule_id="REG-VAL-006",
+                    rule_name="Unresolved Related Occurrences",
+                    severity="ERROR",
+                    status="FAILED",
+                    field="related_occurrences",
+                    message=(
+                        f"Cannot approve changes with unresolved related occurrences. "
+                        f"All occurrences must be explicitly marked as CONFIRMED or EXCLUDED by reviewer. "
+                        f"Pending occurrence(s): {', '.join(pending_occs)}"
+                    ),
+                    passed=False,
+                )
+            )
+        elif any(p.related_occurrences for p in proposals):
+            findings.append(
+                ValidationFinding(
+                    rule_id="REG-VAL-006",
+                    rule_name="Unresolved Related Occurrences",
+                    severity="INFO",
+                    status="PASSED",
+                    field="related_occurrences",
+                    message="All related occurrences explicitly confirmed or excluded.",
+                    passed=True,
+                )
+            )
 
         return findings

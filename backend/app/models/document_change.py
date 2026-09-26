@@ -5,7 +5,7 @@ Enforces human-in-the-loop governance: AI proposes changes, but regulatory profe
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from uuid import uuid4
 from pydantic import BaseModel, Field
 from app.models.comparison import EvidenceTrace
@@ -75,6 +75,28 @@ class RelatedOccurrence(BaseModel):
     source_url: Optional[str] = Field(default=None, description="Official source URL if known")
     reason: Optional[str] = Field(default=None, description="Evidence explaining why this was considered related")
     evidence_explanation: Optional[str] = Field(default=None, description="Detailed explanation of matching basis")
+    status: Literal["PENDING", "CONFIRMED", "EXCLUDED"] = Field(
+        default="PENDING",
+        description="Reviewer confirmation status: PENDING (unreviewed), CONFIRMED (included in coordinated change), EXCLUDED (preserved/excluded)",
+    )
+
+
+class ConfirmOccurrencesRequest(BaseModel):
+    """Payload to confirm or exclude related occurrences for a proposed change."""
+
+    change_id: str = Field(..., min_length=1, description="Target proposed change identifier")
+    confirmed_occurrence_ids: List[str] = Field(
+        default_factory=list,
+        description="IDs of occurrences explicitly confirmed for coordinated change",
+    )
+    excluded_occurrence_ids: List[str] = Field(
+        default_factory=list,
+        description="IDs of occurrences explicitly excluded/preserved from coordinated change",
+    )
+    reviewer_notes: Optional[str] = Field(
+        default=None,
+        description="Optional clinical or regulatory reviewer justification notes",
+    )
 
 
 class ProposedChange(BaseModel):

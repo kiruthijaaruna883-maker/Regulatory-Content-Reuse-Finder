@@ -209,6 +209,19 @@ export const api = {
   },
 
   /**
+   * Confirm or exclude detected occurrences for a proposed change
+   */
+  async confirmOccurrences(payload) {
+    const res = await fetch(`${API_BASE}/changes/occurrences/confirm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return handleResponse(res);
+  },
+
+
+  /**
    * Finalize human approval and compile change report
    */
   async approveAndGenerateReport(reportData) {

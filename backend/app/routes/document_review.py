@@ -8,6 +8,7 @@ from app.models.content import RegulatoryContentItem
 from app.models.document_change import (
     ApprovedChangeReport,
     ChangeImpact,
+    ConfirmOccurrencesRequest,
     ProposedChange,
     RelatedOccurrence,
     ReviewDecisionType,
@@ -174,6 +175,42 @@ async def detect_occurrences(payload: DetectOccurrencesRequest) -> List[RelatedO
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Occurrence detection failed: {exc}",
         )
+
+
+@router.post(
+    "/changes/occurrences/confirm",
+    response_model=ProposedChange,
+    summary="Confirm or exclude detected occurrences for coordinated change",
+)
+async def confirm_occurrences(payload: ConfirmOccurrencesRequest) -> ProposedChange:
+    """Confirm or exclude detected occurrences for a proposed change.
+
+    Recalculates change impact and validation findings based on confirmed occurrences.
+    Excluded occurrences remain preserved with status EXCLUDED for audit traceability.
+    """
+    try:
+        return change_manager.confirm_occurrences(
+            change_id=payload.change_id,
+            confirmed_occurrence_ids=payload.confirmed_occurrence_ids,
+            excluded_occurrence_ids=payload.excluded_occurrence_ids,
+            reviewer_notes=payload.reviewer_notes,
+        )
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc.args[0]),
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Occurrence confirmation failed: {exc}",
+        )
+
 
 
 @router.post(

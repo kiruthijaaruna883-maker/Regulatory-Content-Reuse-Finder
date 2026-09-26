@@ -75,7 +75,8 @@ class ChangeReportService:
         for c in valid_approved_changes:
             all_affected_sections.add(c.section)
             for occ in c.related_occurrences:
-                all_affected_sections.add(occ.section)
+                if getattr(occ, "status", "CONFIRMED") != "EXCLUDED":
+                    all_affected_sections.add(occ.section)
 
         impact_summary = (
             f"Evaluated {len(valid_approved_changes)} approved modification(s) across "
