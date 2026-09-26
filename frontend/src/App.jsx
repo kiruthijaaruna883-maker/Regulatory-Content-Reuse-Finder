@@ -21,6 +21,7 @@ export default function App() {
   const [selectedSection, setSelectedSection] = useState(null);
   const [activeDecision, setActiveDecision] = useState(null);
   const [comparisonContext, setComparisonContext] = useState(null);
+  const [approvedReport, setApprovedReport] = useState(null);
 
   // Transition helper from Search/Dashboard to Comparison
   function handleSelectCandidateForComparison(candidate) {
@@ -63,6 +64,12 @@ export default function App() {
   function handleDecisionRecorded(decision) {
     setActiveDecision(decision);
     setActiveTab('changes');
+  }
+
+  // Transition helper from Change Review to Approved Change Report
+  function handleReportApproved(report) {
+    setApprovedReport(report);
+    setActiveTab('report');
   }
 
   return (
@@ -166,11 +173,14 @@ export default function App() {
           <ChangeReview
             activeDecision={activeDecision}
             comparisonContext={comparisonContext}
+            onReportApproved={handleReportApproved}
           />
         )}
 
         {activeTab === 'report' && (
-          <ApprovedChangeReport />
+          <ApprovedChangeReport
+            approvedReport={approvedReport}
+          />
         )}
       </main>
     </div>

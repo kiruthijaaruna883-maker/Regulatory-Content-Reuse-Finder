@@ -10,11 +10,12 @@ import {
   AlertCircle,
   Play,
   FileText,
-  Shield
+  Shield,
+  FileCheck2
 } from 'lucide-react';
 import { api } from '../services/api';
 
-export default function ChangeReview({ activeDecision, comparisonContext }) {
+export default function ChangeReview({ activeDecision, comparisonContext, onReportApproved }) {
   const [proposals, setProposals] = useState([]);
   const [loading, setLoading] = useState(false);
   const [impactResults, setImpactResults] = useState({});
@@ -24,6 +25,14 @@ export default function ChangeReview({ activeDecision, comparisonContext }) {
   // Reviewer confirmation state per related occurrence (key: occurrence_id -> 'CONFIRMED' | 'EXCLUDED')
   // CRITICAL SAFETY CONSTRAINT: Must start empty/null (NOT CONFIRMED). No occurrence starts confirmed.
   const [occurrenceSelections, setOccurrenceSelections] = useState({});
+
+  // Human regulatory approval gate state (Step 6.7)
+  // CRITICAL SAFETY CONSTRAINTS: Must never prefill approver identity; must never default to true!
+  const [approverName, setApproverName] = useState('');
+  const [approverTitle, setApproverTitle] = useState('');
+  const [approvalConfirmed, setApprovalConfirmed] = useState(false);
+  const [submittingApproval, setSubmittingApproval] = useState(false);
+  const [approvalError, setApprovalError] = useState(null);
 
   // Extract contextual comparison data if available
   const targetSection = comparisonContext?.targetSection || null;
@@ -143,6 +152,77 @@ export default function ChangeReview({ activeDecision, comparisonContext }) {
     }));
   }
 
+  // Step 6.7: Explicit Human Regulatory Approval Handler
+  async function handleAuthorizeApproval(prop, unresolvedOccurrences) {
+    setApprovalError(null);
+
+    // 1. Enforce that all related occurrences must be resolved before approval can proceed
+    if (unresolvedOccurrences.length > 0) {
+      setApprovalError(
+        `Action Blocked: ${unresolvedOccurrences.length} related occurrence(s) remain unresolved. Please review and mark every occurrence as either Confirmed or Excluded.`
+      );
+      return;
+    }
+
+    // 2. Validate Approver Full Name
+    const cleanName = approverName.trim();
+    if (!cleanName) {
+      setApprovalError('Approver full name is required for regulatory authorization.');
+      return;
+    }
+
+    // 3. Validate Approver Regulatory Authority Title
+    const cleanTitle = approverTitle.trim();
+    if (!cleanTitle) {
+      setApprovalError('Approver regulatory authority title/role is required for authorization.');
+      return;
+    }
+
+    // 4. Validate Explicit Confirmation Checkbox (strictly must be checked)
+    if (!approvalConfirmed) {
+      setApprovalError('Explicit human authorization confirmation checkbox must be checked.');
+      return;
+    }
+
+    setSubmittingApproval(true);
+    try {
+      const fullApproverIdentity = `${cleanName}, ${cleanTitle}`;
+      const relatedOccs = prop.related_occurrences || [];
+      const occSummary =
+        relatedOccs.length > 0
+          ? relatedOccs
+              .map((occ, idx) => {
+                const key = occ.occurrence_id || `${prop.change_id}_occ_${idx}`;
+                const status = occurrenceSelections[key];
+                return `[${occ.section} (${occ.match_type})]: ${
+                  status === 'CONFIRMED' ? 'CONFIRMED FOR CHANGE' : 'EXCLUDED/PRESERVED'
+                }`;
+              })
+              .join('; ')
+          : 'No related occurrences identified.';
+
+      const payload = {
+        approver_name: fullApproverIdentity,
+        approval_confirmation: true,
+        proposal_ids: [prop.change_id],
+        document_name: prop.document_name || documentName || null,
+        document_version: prop.document_version || targetSection?.document_version || null,
+        audit_notes: `Authorized by ${fullApproverIdentity}. Occurrence review: ${occSummary}. Rationale: ${prop.rationale}`,
+      };
+
+      const report = await api.approveAndGenerateReport(payload);
+
+      // On successful authorization, pass authentic report to App.jsx to navigate to Approved Change Report
+      if (onReportApproved) {
+        onReportApproved(report);
+      }
+    } catch (err) {
+      setApprovalError(err.message || 'Regulatory approval authorization failed.');
+    } finally {
+      setSubmittingApproval(false);
+    }
+  }
+
   // Check if a proposal has already been formulated for the active decision
   const existingActiveProposal = activeDecision
     ? proposals.find((p) => p.decision_id === activeDecision.decision_id)
@@ -154,7 +234,7 @@ export default function ChangeReview({ activeDecision, comparisonContext }) {
       <div className="screen-header">
         <div>
           <h2>Controlled Document Change Review</h2>
-          <p>Impact analysis, multi-layer occurrence review, and explicit human confirmation before propagation</p>
+          <p>Impact analysis, multi-layer occurrence review, and human regulatory authorization</p>
         </div>
       </div>
 
@@ -287,13 +367,13 @@ export default function ChangeReview({ activeDecision, comparisonContext }) {
           {(activeDecision.decision === 'REUSE' || activeDecision.decision === 'ADAPT') && existingActiveProposal && (
             <div style={{ padding: '0.75rem 1rem', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', color: 'var(--color-success)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <CheckCircle2 size={16} />
-              <span>Controlled change proposal <code>{existingActiveProposal.change_id}</code> is active for this decision. Review impact assessment and related occurrences below.</span>
+              <span>Controlled change proposal <code>{existingActiveProposal.change_id}</code> is active for this decision. Review impact assessment, occurrences, and authorization gate below.</span>
             </div>
           )}
         </div>
       )}
 
-      {/* 2. PROPOSALS LIST & IMPACT / OCCURRENCE REVIEW */}
+      {/* 2. PROPOSALS LIST & IMPACT / OCCURRENCE REVIEW / STEP 6.7 APPROVAL */}
       {proposals.length === 0 ? (
         <div className="card" style={{ maxWidth: '900px', margin: '0 auto' }}>
           <div className="empty-state">
@@ -312,6 +392,23 @@ export default function ChangeReview({ activeDecision, comparisonContext }) {
         <div style={{ maxWidth: '900px', margin: '0 auto' }}>
           {proposals.map((prop) => {
             const impact = impactResults[prop.change_id] || prop.impact_analysis;
+            const relatedOccs = prop.related_occurrences || [];
+            const isApproved = prop.status === 'APPROVED';
+
+            // Calculate occurrence resolution status for Step 6.7 handoff
+            const confirmedOccs = relatedOccs.filter((occ, idx) => {
+              const key = occ.occurrence_id || `${prop.change_id}_occ_${idx}`;
+              return occurrenceSelections[key] === 'CONFIRMED';
+            });
+            const excludedOccs = relatedOccs.filter((occ, idx) => {
+              const key = occ.occurrence_id || `${prop.change_id}_occ_${idx}`;
+              return occurrenceSelections[key] === 'EXCLUDED';
+            });
+            const unresolvedOccs = relatedOccs.filter((occ, idx) => {
+              const key = occ.occurrence_id || `${prop.change_id}_occ_${idx}`;
+              const sel = occurrenceSelections[key];
+              return sel !== 'CONFIRMED' && sel !== 'EXCLUDED';
+            });
 
             return (
               <div key={prop.change_id} className="card" style={{ marginBottom: '1.5rem' }}>
@@ -324,8 +421,15 @@ export default function ChangeReview({ activeDecision, comparisonContext }) {
                     <span className={`badge badge-${prop.decision_type.toLowerCase()}`}>
                       {prop.decision_type}
                     </span>
-                    <span className="status-pill">
-                      {prop.status || 'PROPOSED'}
+                    <span
+                      className="status-pill"
+                      style={{
+                        background: isApproved ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)',
+                        color: isApproved ? 'var(--color-success)' : 'var(--color-warning)',
+                        borderColor: isApproved ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.3)',
+                      }}
+                    >
+                      {isApproved ? 'AUTHORIZED / APPROVED' : 'PENDING HUMAN APPROVAL'}
                     </span>
                   </div>
                 </div>
@@ -422,7 +526,7 @@ export default function ChangeReview({ activeDecision, comparisonContext }) {
                           {impact.affected_content_count || 1}
                         </strong>
                         <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', display: 'block', marginTop: '0.1rem' }}>
-                          Target section + {prop.related_occurrences?.length || 0} occurrences
+                          Target section + {relatedOccs.length} occurrences
                         </span>
                       </div>
                     </div>
@@ -495,10 +599,10 @@ export default function ChangeReview({ activeDecision, comparisonContext }) {
                 )}
 
                 {/* 4. RELATED OCCURRENCE REVIEW STATION */}
-                <div style={{ background: 'var(--bg-surface-elevated)', padding: '1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+                <div style={{ background: 'var(--bg-surface-elevated)', padding: '1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', marginBottom: '1.25rem' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
                     <span style={{ fontSize: '0.84rem', fontWeight: '600', color: '#fff', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                      <Layers size={15} color="var(--color-brand)" /> Related Occurrence Review ({prop.related_occurrences?.length || 0})
+                      <Layers size={15} color="var(--color-brand)" /> Related Occurrence Review ({relatedOccs.length})
                     </span>
                     <span className="badge badge-section" style={{ fontSize: '0.7rem' }}>
                       4-Layer Detection Active
@@ -544,9 +648,9 @@ export default function ChangeReview({ activeDecision, comparisonContext }) {
                   </div>
 
                   {/* Occurrences List */}
-                  {prop.related_occurrences && prop.related_occurrences.length > 0 ? (
+                  {relatedOccs.length > 0 ? (
                     <div>
-                      {prop.related_occurrences.map((occ, idx) => {
+                      {relatedOccs.map((occ, idx) => {
                         const occKey = occ.occurrence_id || `${prop.change_id}_occ_${idx}`;
                         const currentSelection = occurrenceSelections[occKey]; // undefined | 'CONFIRMED' | 'EXCLUDED'
 
@@ -672,6 +776,168 @@ export default function ChangeReview({ activeDecision, comparisonContext }) {
                   ) : (
                     <div style={{ background: 'var(--bg-main)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', color: 'var(--text-muted)', textAlign: 'center' }}>
                       No cross-section related occurrences detected for this text sequence. The proposed modification remains isolated to <strong>{prop.section}</strong>.
+                    </div>
+                  )}
+                </div>
+
+                {/* 5. STEP 6.7: HUMAN REGULATORY APPROVAL GATE */}
+                <div
+                  style={{
+                    background: 'rgba(59, 130, 246, 0.04)',
+                    border: '1px solid rgba(59, 130, 246, 0.3)',
+                    borderRadius: 'var(--radius-md)',
+                    padding: '1.25rem',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.6rem' }}>
+                    <ShieldCheck size={20} color="var(--color-brand)" />
+                    <div>
+                      <strong style={{ fontSize: '0.9rem', color: '#fff', display: 'block' }}>
+                        Human Regulatory Approval Gate
+                      </strong>
+                      <span style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
+                        Explicit authorization to compile this controlled proposal into the Approved Change Report
+                      </span>
+                    </div>
+                  </div>
+
+                  {isApproved ? (
+                    <div style={{ color: 'var(--color-success)', fontSize: '0.84rem', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem', background: 'rgba(16, 185, 129, 0.1)', borderRadius: 'var(--radius-sm)' }}>
+                      <CheckCircle2 size={16} />
+                      <span>This change has been authorized by the regulatory approver and recorded in the Approved Change Report.</span>
+                    </div>
+                  ) : (
+                    <div>
+                      {/* Summary of What is Being Authorized */}
+                      <div style={{ background: 'var(--bg-main)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)', marginBottom: '1rem', fontSize: '0.78rem' }}>
+                        <strong style={{ color: 'var(--color-brand)', display: 'block', marginBottom: '0.35rem' }}>
+                          Authorization Specification Summary:
+                        </strong>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', color: 'var(--text-secondary)' }}>
+                          <span>Subject Target: <strong>{prop.document_name || documentName || 'Internal Draft'} — {prop.section}</strong></span>
+                          <span>Controlled Action: <strong>{prop.decision_type}</strong></span>
+                          <span>Evaluated Risk Level: <strong style={{ color: impact?.risk_level === 'HIGH' ? 'var(--color-danger)' : 'var(--color-success)' }}>{impact?.risk_level || 'LOW'} RISK</strong></span>
+                          <span>
+                            Occurrence Resolutions: <strong>{confirmedOccs.length} confirmed</strong>, <strong>{excludedOccs.length} excluded</strong>
+                            {unresolvedOccs.length > 0 && <span style={{ color: 'var(--color-danger)' }}> ({unresolvedOccs.length} unreviewed)</span>}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Unresolved Occurrences Blocking Warning */}
+                      {unresolvedOccs.length > 0 && (
+                        <div
+                          style={{
+                            padding: '0.75rem 1rem',
+                            background: 'rgba(239, 68, 68, 0.12)',
+                            border: '1px solid rgba(239, 68, 68, 0.35)',
+                            borderRadius: 'var(--radius-sm)',
+                            marginBottom: '1rem',
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            gap: '0.5rem',
+                          }}
+                        >
+                          <AlertCircle size={17} color="var(--color-danger)" style={{ flexShrink: 0, marginTop: '2px' }} />
+                          <div style={{ fontSize: '0.78rem', color: '#fca5a5' }}>
+                            <strong>Action Blocked — Unreviewed Occurrences:</strong> {unresolvedOccs.length} related occurrence(s) remain <em>PENDING REVIEW (UNCONFIRMED)</em>. You must explicitly resolve every displayed occurrence above (as either <strong>Confirm for coordinated change</strong> or <strong>Exclude / preserve</strong>) before authorizing regulatory approval.
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Approver Identity Inputs */}
+                      <div className="grid-2" style={{ gap: '0.75rem', marginBottom: '1rem' }}>
+                        <div>
+                          <label style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.25rem', fontWeight: '500' }}>
+                            Approver Full Name *
+                          </label>
+                          <input
+                            type="text"
+                            className="input-text"
+                            placeholder="e.g., Dr. Jane Doe"
+                            value={approverName}
+                            onChange={(e) => {
+                              setApproverName(e.target.value);
+                              setApprovalError(null);
+                            }}
+                            style={{ width: '100%' }}
+                          />
+                        </div>
+
+                        <div>
+                          <label style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.25rem', fontWeight: '500' }}>
+                            Regulatory Authority Title / Role *
+                          </label>
+                          <input
+                            type="text"
+                            className="input-text"
+                            placeholder="e.g., Senior Director, Regulatory Affairs"
+                            value={approverTitle}
+                            onChange={(e) => {
+                              setApproverTitle(e.target.value);
+                              setApprovalError(null);
+                            }}
+                            style={{ width: '100%' }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Explicit Human Authorization Confirmation Checkbox */}
+                      <div style={{ marginBottom: '1rem' }}>
+                        <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={approvalConfirmed}
+                            onChange={(e) => {
+                              setApprovalConfirmed(e.target.checked);
+                              setApprovalError(null);
+                            }}
+                            style={{ marginTop: '0.2rem' }}
+                          />
+                          <span style={{ fontSize: '0.78rem', color: 'var(--text-primary)', lineHeight: 1.45 }}>
+                            I confirm that I have evaluated the proposed change, evidence, impact analysis, validation findings, and occurrence review, and authorize this change for inclusion in the Approved Change Report.
+                          </span>
+                        </label>
+                      </div>
+
+                      {/* Inline Approval Error Banner */}
+                      {approvalError && (
+                        <div
+                          style={{
+                            marginBottom: '1rem',
+                            padding: '0.65rem 0.85rem',
+                            background: 'rgba(239, 68, 68, 0.12)',
+                            border: '1px solid rgba(239, 68, 68, 0.3)',
+                            borderRadius: 'var(--radius-sm)',
+                            color: '#fca5a5',
+                            fontSize: '0.8rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.4rem',
+                          }}
+                        >
+                          <AlertCircle size={15} color="var(--color-danger)" style={{ flexShrink: 0 }} />
+                          <span>{approvalError}</span>
+                        </div>
+                      )}
+
+                      {/* Action Button */}
+                      <button
+                        type="button"
+                        onClick={() => handleAuthorizeApproval(prop, unresolvedOccs)}
+                        className="btn btn-primary"
+                        disabled={
+                          submittingApproval ||
+                          !approvalConfirmed ||
+                          !approverName.trim() ||
+                          !approverTitle.trim() ||
+                          unresolvedOccs.length > 0
+                        }
+                        style={{ fontSize: '0.82rem', padding: '0.5rem 1rem' }}
+                      >
+                        <FileCheck2 size={15} />
+                        {submittingApproval ? 'Authorizing & Compiling Report...' : 'Authorize & Generate Approved Change Report'}
+                      </button>
                     </div>
                   )}
                 </div>
