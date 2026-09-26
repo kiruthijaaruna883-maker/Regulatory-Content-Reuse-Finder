@@ -20,30 +20,26 @@ class KeyInformationExtractor:
 
     # Frequency patterns
     FREQUENCY_PATTERNS = [
-        (r"\bonce\s+(?:each\s+day|daily|a\s+day)\b", "once daily"),
-        (r"\btwice\s+(?:daily|a\s+day|per\s+day)\b", "twice daily"),
-        (r"\bthree\s+times\s+(?:a|per)\s+day\b", "three times daily"),
-        (r"\bfour\s+times\s+(?:a|per)\s+day\b", "four times daily"),
+        (r"\bonce\s+(?:each\s+day|daily|a\s+day)\b|\bdaily\b|\bq\s*d\b|\bq\.d\.\b", "once daily"),
+        (r"\btwice\s+(?:daily|a\s+day|per\s+day)\b|\bb\s*i\s*d\b|\bb\.i\.d\.\b|\bbid\b", "twice daily"),
+        (r"\bthree\s+times\s+(?:a|per)\s+day\b|\bt\s*i\s*d\b|\bt\.i\.d\.\b|\btid\b", "three times daily"),
+        (r"\bfour\s+times\s+(?:a|per)\s+day\b|\bq\s*i\s*d\b|\bq\.i\.d\.\b|\bqid\b", "four times daily"),
         (r"\bevery\s+(\d+(?:\s*(?:to|-)\s*\d+)?)\s*hours?\b", r"every \1 hours"),
         (r"\bevery\s+morning\b", "every morning"),
         (r"\bat\s+bedtime\b", "at bedtime"),
-        (r"\bas\s+needed\b", "as needed"),
+        (r"\bas\s+needed\b|\bprn\b|\bp\.r\.n\.\b", "as needed"),
         (r"\bq\s*4\s*h\b", "every 4 hours"),
         (r"\bq\s*6\s*h\b", "every 6 hours"),
         (r"\bq\s*8\s*h\b", "every 8 hours"),
         (r"\bq\s*12\s*h\b", "every 12 hours"),
-        (r"\bq\s*d\b|\bq\s*daily\b", "once daily"),
-        (r"\bb\s*i\s*d\b", "twice daily"),
-        (r"\bt\s*i\s*d\b", "three times daily"),
-        (r"\bq\s*i\s*d\b", "four times daily"),
     ]
 
     # Route patterns
     ROUTE_PATTERNS = [
-        (r"\borally\b|\bby\s+mouth\b|\boral\b", "Oral"),
-        (r"\bintravenous(?:ly)?\b|\bIV\b", "Intravenous"),
-        (r"\bsubcutaneous(?:ly)?\b|\bSC\b|\bSubQ\b", "Subcutaneous"),
-        (r"\bintramuscular(?:ly)?\b|\bIM\b", "Intramuscular"),
+        (r"\borally\b|\bby\s+mouth\b|\boral\b|\bpo\b|\bp\.o\.\b", "Oral"),
+        (r"\bintravenous(?:ly)?\b|\bIV\b|\bi\.v\.\b", "Intravenous"),
+        (r"\bsubcutaneous(?:ly)?\b|\bSC\b|\bSubQ\b|\bs\.c\.\b", "Subcutaneous"),
+        (r"\bintramuscular(?:ly)?\b|\bIM\b|\bi\.m\.\b", "Intramuscular"),
         (r"\btopical(?:ly)?\b", "Topical"),
         (r"\binhalation\b|\binhaled\b", "Inhalation"),
         (r"\bophthalmic\b", "Ophthalmic"),
@@ -195,9 +191,13 @@ class KeyInformationExtractor:
             info.product = detected_name
 
         # 7. Duration
-        duration_match = re.search(r"\b(?:for|up to)\s+(\d+\s+(?:days?|weeks?|months?|hours?))\b", clean_text, re.IGNORECASE)
+        duration_match = re.search(
+            r"\b(?:for|up to|during)\s+(\d+(?:\s*(?:to|-)\s*\d+)?\s+(?:days?|weeks?|months?|hours?))\b|\b(\d+(?:\s*(?:to|-)\s*\d+)?\s+(?:days?|weeks?|months?))\s+(?:of\s+treatment|course|therapy|duration)\b",
+            clean_text,
+            re.IGNORECASE,
+        )
         if duration_match:
-            info.duration = duration_match.group(0)
+            info.duration = (duration_match.group(1) or duration_match.group(2)).strip()
 
         # 8. Indication
         ind_match = re.search(
@@ -244,3 +244,68 @@ class KeyInformationExtractor:
 
         return info
 
+
+def normalize_route(route: Optional[str]) -> Optional[str]:
+    """Conservative canonical normalization for administration route.
+
+    oral, po, by mouth => Oral
+    intravenous, iv => Intravenous
+    subcutaneous, sc, subq => Subcutaneous
+    """
+    if not route:
+        return None
+    r = route.strip().lower().replace(".", "")
+    if r in {"oral", "po", "by mouth", "orally"}:
+        return "Oral"
+    if r in {"intravenous", "iv", "intravenously"}:
+        return "Intravenous"
+    if r in {"subcutaneous", "sc", "subq", "subcutaneously"}:
+        return "Subcutaneous"
+    if r in {"intramuscular", "im", "intramuscularly"}:
+        return "Intramuscular"
+    if r in {"topical", "topically"}:
+        return "Topical"
+    if r in {"inhalation", "inhaled"}:
+        return "Inhalation"
+    return route.strip().title()
+
+
+def normalize_frequency(freq: Optional[str]) -> Optional[str]:
+    """Conservative canonical normalization for dosing frequency.
+
+    once daily, daily, qd, q.d. => once daily
+    twice daily, bid, b.i.d. => twice daily
+    three times daily, tid, t.i.d. => three times daily
+    """
+    if not freq:
+        return None
+    f = freq.strip().lower().replace(".", "")
+    if f in {"once daily", "daily", "qd", "once a day", "once each day", "every day"}:
+        return "once daily"
+    if f in {"twice daily", "bid", "twice a day", "per day twice"}:
+        return "twice daily"
+    if f in {"three times daily", "tid", "three times a day"}:
+        return "three times daily"
+    if f in {"four times daily", "qid", "four times a day"}:
+        return "four times daily"
+    return freq.strip().lower()
+
+
+def normalize_dose_unit(unit: Optional[str]) -> Optional[str]:
+    """Canonical normalization for pharmaceutical dose unit."""
+    if not unit:
+        return None
+    u = unit.strip().lower()
+    if u in {"mg", "milligram", "milligrams"}:
+        return "mg"
+    if u in {"mcg", "ug", "microgram", "micrograms"}:
+        return "mcg"
+    if u in {"g", "gram", "grams"}:
+        return "g"
+    if u in {"ml", "milliliter", "milliliters"}:
+        return "ml"
+    if u in {"tablet", "tablets", "tab", "tabs"}:
+        return "tablet"
+    if u in {"capsule", "capsules", "cap", "caps"}:
+        return "capsule"
+    return u
