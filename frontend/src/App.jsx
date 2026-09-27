@@ -82,7 +82,7 @@ export default function App() {
           </div>
           <div className="brand-title-group">
             <h1>Regulatory Content Reuse Finder</h1>
-            <p>Life Sciences Regulatory Affairs • V1 Foundation</p>
+            <p>Life Sciences Regulatory Affairs</p>
           </div>
         </div>
 
@@ -145,6 +145,7 @@ export default function App() {
         {activeTab === 'dashboard' && (
           <Dashboard
             onSelectCandidateForComparison={handleSelectCandidateForComparison}
+            onNavigateTab={setActiveTab}
           />
         )}
 

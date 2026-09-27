@@ -1,33 +1,50 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap');
 
 :root {
-  --bg-main: #080c14;
-  --bg-surface: #0e1524;
-  --bg-surface-elevated: #151f33;
-  --bg-surface-hover: #1b2842;
-  --border-subtle: #1e2c45;
-  --border-focus: #0ea5e9;
+  /* ========================================================================= */
+  /* GPR LIGHT BLUSHISH-GREEN / SOFT SEA-GREEN THEME PALETTE                   */
+  /* ========================================================================= */
 
-  --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
+  /* Foundation - Light Soft Sea-Green / Blush-Green & Clean Surfaces */
+  --bg-main: #f0f5f3;             /* Soft, fresh, light sea-green/blush-green foundation */
+  --bg-surface: #ffffff;          /* Pure white card and panel surfaces */
+  --bg-surface-elevated: #f6faf8; /* Crisp elevated sections with gentle blush-green tint */
+  --bg-surface-hover: #e8f2ee;    /* Subtle soft sea-green hover */
+  --border-subtle: #d2e2db;       /* Refined soft sea-silver border */
+  --border-focus: #0d9488;        /* Soft sea-green focus boundary */
 
-  --color-brand: #0ea5e9;
-  --color-brand-teal: #14b8a6;
-  --color-success: #10b981;
-  --color-warning: #f59e0b;
-  --color-danger: #ef4444;
-  --color-dailymed: #38bdf8;
-  --color-openfda: #a78bfa;
+  /* Typography - Deep Slate-Charcoal & Muted Moss-Slate */
+  --text-primary: #11221b;        /* Deep slate-charcoal for high readability */
+  --text-secondary: #475a52;      /* Muted moss-slate for supporting copy */
+  --text-muted: #657a72;          /* Soft slate for captions, hints, and timestamps */
 
+  /* Primary Accent - Soft Sea-Green / Elegant Teal */
+  --color-brand: #0d9488;         /* Calm, noble, soft sea-green / teal jewel accent */
+  --color-brand-hover: #0f766e;   /* Deeper sea-green on interactive hover */
+  --color-brand-teal: #14b8a6;    /* Soft sea-green complementary tint */
+  --color-brand-tint: rgba(13, 148, 136, 0.06); /* Diluted sea-green / blush wash */
+  --color-brand-border: rgba(13, 148, 136, 0.22);
+
+  /* Secondary Accents - Restrained & Complementary */
+  --color-dailymed: #0284c7;      /* Authoritative clinical blue for DailyMed */
+  --color-openfda: #7c3aed;       /* Deep royal amethyst for openFDA */
+
+  /* Semantic Status - Restrained High-Contrast */
+  --color-success: #15803d;       /* Noble forest green */
+  --color-warning: #b45309;       /* Deep amber */
+  --color-danger: #b91c1c;        /* Deep ruby red */
+
+  /* Fonts */
   --font-heading: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 
+  /* Geometry & Shadows - Soft, Clean, Low-Key Luxury */
   --radius-sm: 6px;
   --radius-md: 10px;
-  --radius-lg: 16px;
-  --shadow-card: 0 4px 20px -2px rgba(0, 0, 0, 0.5);
-  --shadow-glow: 0 0 20px -5px rgba(14, 165, 233, 0.25);
+  --radius-lg: 14px;
+  --shadow-card: 0 1px 3px rgba(17, 34, 27, 0.04), 0 4px 16px rgba(17, 34, 27, 0.04);
+  --shadow-elevated: 0 4px 20px -2px rgba(17, 34, 27, 0.08);
+  --shadow-glow: 0 2px 8px rgba(13, 148, 136, 0.22);
 }
 
 * {
@@ -55,6 +72,7 @@ button, input, select, textarea {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  background-color: var(--bg-main);
 }
 
 /* Top Navigation Header */
@@ -62,13 +80,14 @@ button, input, select, textarea {
   position: sticky;
   top: 0;
   z-index: 50;
-  background: rgba(14, 21, 36, 0.85);
+  background: rgba(255, 255, 255, 0.94);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border-subtle);
   padding: 0.75rem 1.5rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  box-shadow: 0 1px 4px rgba(17, 34, 27, 0.03);
 }
 
 .brand-section {
@@ -96,7 +115,7 @@ button, input, select, textarea {
   font-size: 1.15rem;
   font-weight: 700;
   letter-spacing: -0.01em;
-  color: #fff;
+  color: var(--text-primary);
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -104,19 +123,20 @@ button, input, select, textarea {
 
 .brand-title-group p {
   font-size: 0.75rem;
-  color: var(--text-secondary);
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  font-weight: 500;
 }
 
 /* Nav Tabs */
 .nav-tabs {
   display: flex;
   gap: 0.25rem;
-  background: var(--bg-main);
+  background: #dfede7;
   padding: 0.25rem;
   border-radius: var(--radius-md);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid #c8ded4;
 }
 
 .nav-tab {
@@ -136,14 +156,14 @@ button, input, select, textarea {
 
 .nav-tab:hover {
   color: var(--text-primary);
-  background: var(--bg-surface);
+  background: rgba(255, 255, 255, 0.7);
 }
 
 .nav-tab.active {
-  color: #fff;
-  background: var(--bg-surface-elevated);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-  border: 1px solid var(--border-subtle);
+  color: #ffffff !important;
+  background: linear-gradient(135deg, var(--color-brand), var(--color-brand-hover));
+  box-shadow: 0 2px 6px rgba(13, 148, 136, 0.28);
+  border: 1px solid #0f766e;
 }
 
 /* Header Live Status */
@@ -158,11 +178,11 @@ button, input, select, textarea {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.25rem 0.6rem;
+  padding: 0.25rem 0.65rem;
   border-radius: 9999px;
-  background: rgba(16, 185, 129, 0.1);
+  background: rgba(21, 128, 61, 0.08);
   color: var(--color-success);
-  border: 1px solid rgba(16, 185, 129, 0.25);
+  border: 1px solid rgba(21, 128, 61, 0.25);
   font-size: 0.75rem;
   font-weight: 600;
 }
@@ -172,7 +192,7 @@ button, input, select, textarea {
   height: 7px;
   border-radius: 50%;
   background: var(--color-success);
-  box-shadow: 0 0 8px var(--color-success);
+  box-shadow: 0 0 6px rgba(21, 128, 61, 0.35);
 }
 
 /* Main Content Area */
@@ -194,15 +214,17 @@ button, input, select, textarea {
 
 .screen-header h2 {
   font-family: var(--font-heading);
-  font-size: 1.6rem;
-  font-weight: 600;
-  color: #fff;
+  font-size: 1.55rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
 }
 
 .screen-header p {
   color: var(--text-secondary);
   font-size: 0.9rem;
   margin-top: 0.25rem;
+  line-height: 1.5;
 }
 
 /* Cards & Containers */
@@ -212,11 +234,11 @@ button, input, select, textarea {
   border-radius: var(--radius-lg);
   padding: 1.25rem;
   box-shadow: var(--shadow-card);
-  transition: border-color 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .card:hover {
-  border-color: #2e3e5c;
+  border-color: #b8cfc4;
 }
 
 .card-header {
@@ -225,14 +247,14 @@ button, input, select, textarea {
   align-items: center;
   margin-bottom: 1rem;
   padding-bottom: 0.75rem;
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid #edf4f0;
 }
 
 .card-title {
   font-family: var(--font-heading);
   font-size: 1.05rem;
   font-weight: 600;
-  color: #fff;
+  color: var(--text-primary);
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -258,12 +280,6 @@ button, input, select, textarea {
 }
 
 @media (max-width: 1024px) {
-  .grid-3, .grid-4 {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-@media (max-width: 768px) {
   .grid-2, .grid-3, .grid-4 {
     grid-template-columns: 1fr;
   }
@@ -278,38 +294,44 @@ button, input, select, textarea {
 
 .input-text {
   flex: 1;
-  background: var(--bg-main);
+  background: #ffffff;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   padding: 0.65rem 0.9rem;
-  color: #fff;
+  color: var(--text-primary);
   font-size: 0.9rem;
   outline: none;
   transition: all 0.15s ease;
 }
 
 .input-text:focus {
-  border-color: var(--border-focus);
-  box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.2);
+  border-color: var(--color-brand);
+  box-shadow: 0 0 0 2px rgba(13, 148, 136, 0.15);
 }
 
 .select-box {
-  background: var(--bg-main);
+  background: #ffffff;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   padding: 0.65rem 0.9rem;
-  color: #fff;
+  color: var(--text-primary);
   font-size: 0.9rem;
   outline: none;
   cursor: pointer;
 }
 
+.select-box:focus {
+  border-color: var(--color-brand);
+  box-shadow: 0 0 0 2px rgba(13, 148, 136, 0.15);
+}
+
+/* Buttons */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  padding: 0.65rem 1.1rem;
+  padding: 0.6rem 1.1rem;
   border-radius: var(--radius-md);
   font-size: 0.88rem;
   font-weight: 600;
@@ -319,55 +341,62 @@ button, input, select, textarea {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, var(--color-brand), #0284c7);
-  color: #fff;
-  box-shadow: 0 2px 10px rgba(14, 165, 233, 0.3);
+  background: linear-gradient(135deg, var(--color-brand), var(--color-brand-hover));
+  color: #ffffff !important;
+  border: 1px solid #0f766e;
+  box-shadow: 0 2px 6px rgba(13, 148, 136, 0.22);
 }
 
 .btn-primary:hover {
-  background: linear-gradient(135deg, #38bdf8, var(--color-brand));
+  background: linear-gradient(135deg, #14b8a6, var(--color-brand));
   transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(13, 148, 136, 0.32);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
 }
 
 .btn-secondary {
-  background: var(--bg-surface-elevated);
+  background: #ffffff;
   color: var(--text-primary);
   border: 1px solid var(--border-subtle);
+  box-shadow: 0 1px 2px rgba(17, 34, 27, 0.04);
 }
 
 .btn-secondary:hover {
   background: var(--bg-surface-hover);
-  border-color: #384d70;
+  border-color: #b8cfc4;
 }
 
 .btn-reuse {
-  background: rgba(16, 185, 129, 0.15);
+  background: rgba(21, 128, 61, 0.08);
   color: var(--color-success);
-  border: 1px solid rgba(16, 185, 129, 0.35);
+  border: 1px solid rgba(21, 128, 61, 0.25);
 }
 
 .btn-reuse:hover {
-  background: rgba(16, 185, 129, 0.25);
+  background: rgba(21, 128, 61, 0.15);
 }
 
 .btn-adapt {
-  background: rgba(245, 158, 11, 0.15);
+  background: rgba(180, 83, 9, 0.08);
   color: var(--color-warning);
-  border: 1px solid rgba(245, 158, 11, 0.35);
+  border: 1px solid rgba(180, 83, 9, 0.25);
 }
 
 .btn-adapt:hover {
-  background: rgba(245, 158, 11, 0.25);
+  background: rgba(180, 83, 9, 0.15);
 }
 
 .btn-reject {
-  background: rgba(239, 68, 68, 0.15);
+  background: rgba(185, 28, 28, 0.08);
   color: var(--color-danger);
-  border: 1px solid rgba(239, 68, 68, 0.35);
+  border: 1px solid rgba(185, 28, 28, 0.25);
 }
 
 .btn-reject:hover {
-  background: rgba(239, 68, 68, 0.25);
+  background: rgba(185, 28, 28, 0.15);
 }
 
 /* Badges */
@@ -383,60 +412,61 @@ button, input, select, textarea {
 }
 
 .badge-dailymed {
-  background: rgba(56, 189, 248, 0.12);
+  background: rgba(2, 132, 199, 0.08);
   color: var(--color-dailymed);
-  border: 1px solid rgba(56, 189, 248, 0.3);
+  border: 1px solid rgba(2, 132, 199, 0.22);
 }
 
 .badge-openfda {
-  background: rgba(167, 139, 250, 0.12);
+  background: rgba(124, 58, 237, 0.08);
   color: var(--color-openfda);
-  border: 1px solid rgba(167, 139, 250, 0.3);
+  border: 1px solid rgba(124, 58, 237, 0.22);
 }
 
 .badge-section {
-  background: var(--bg-surface-elevated);
+  background: #eaf2ee;
   color: var(--text-secondary);
   border: 1px solid var(--border-subtle);
 }
 
 .badge-reuse {
-  background: rgba(16, 185, 129, 0.15);
+  background: rgba(21, 128, 61, 0.08);
   color: var(--color-success);
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  border: 1px solid rgba(21, 128, 61, 0.25);
 }
 
 .badge-adapt {
-  background: rgba(245, 158, 11, 0.15);
+  background: rgba(180, 83, 9, 0.08);
   color: var(--color-warning);
-  border: 1px solid rgba(245, 158, 11, 0.3);
+  border: 1px solid rgba(180, 83, 9, 0.25);
 }
 
 .badge-reject {
-  background: rgba(239, 68, 68, 0.15);
+  background: rgba(185, 28, 28, 0.08);
   color: var(--color-danger);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  border: 1px solid rgba(185, 28, 28, 0.25);
 }
 
 /* Result List */
 .result-item {
-  background: var(--bg-surface-elevated);
+  background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   padding: 1rem;
   margin-bottom: 0.75rem;
+  box-shadow: 0 1px 3px rgba(17, 34, 27, 0.03);
   transition: all 0.15s ease;
 }
 
 .result-item:hover {
-  border-color: #384d70;
+  border-color: #b8cfc4;
   transform: translateX(2px);
 }
 
 .result-title {
   font-weight: 600;
   font-size: 0.95rem;
-  color: #fff;
+  color: var(--text-primary);
   margin-bottom: 0.4rem;
   display: flex;
   justify-content: space-between;
@@ -454,7 +484,7 @@ button, input, select, textarea {
   font-size: 0.85rem;
   color: var(--text-secondary);
   line-height: 1.5;
-  background: var(--bg-main);
+  background: #f6faf8;
   padding: 0.65rem 0.85rem;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-subtle);
@@ -476,6 +506,7 @@ button, input, select, textarea {
 
 .trace-link:hover {
   text-decoration: underline;
+  color: var(--color-brand-hover);
 }
 
 /* Empty State */
@@ -495,4 +526,74 @@ button, input, select, textarea {
   display: flex;
   gap: 0.5rem;
   margin-bottom: 0.5rem;
+}
+
+/* ========================================================================= */
+/* GLOBAL LIGHT BLUSH/SEA-GREEN THEME ADAPTATION & CONTRAST NORMALIZATION    */
+/* ========================================================================= */
+
+h1, h2, h3, h4, h5, h6, strong, b {
+  color: var(--text-primary);
+}
+
+code {
+  background: #eaf2ee;
+  color: #1e382d;
+  padding: 0.15rem 0.35rem;
+  border-radius: 4px;
+  border: 1px solid #d0e0d8;
+  font-size: 0.86em;
+}
+
+pre {
+  background: #f6faf8;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: #11221b;
+}
+
+/* Normalize inline #fff text to dark slate-charcoal, preserving white on buttons/active tabs/logo */
+[style*="color: #fff"]:not(.btn-primary):not(.btn-primary *):not(.nav-tab.active):not(.nav-tab.active *):not(.brand-logo):not(.brand-logo *),
+[style*="color: rgb(255, 255, 255)"]:not(.btn-primary):not(.btn-primary *):not(.nav-tab.active):not(.nav-tab.active *):not(.brand-logo):not(.brand-logo *) {
+  color: var(--text-primary) !important;
+}
+
+/* Normalize pale dark-mode alerts to high-contrast rich light-mode tones */
+[style*="color: #a7f3d0"], [style*="color: #34d399"] {
+  color: #15803d !important;
+}
+
+[style*="color: #fca5a5"], [style*="color: #f87171"] {
+  color: #b91c1c !important;
+}
+
+[style*="color: #fbbf24"], [style*="color: #fde68a"] {
+  color: #b45309 !important;
+}
+
+[style*="color: #a5f3fc"], [style*="color: #93c5fd"] {
+  color: var(--color-brand) !important;
+}
+
+[style*="color: #cbd5e1"] {
+  color: var(--text-secondary) !important;
+}
+
+/* Custom soft sea-green scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f0f5f3;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c8ded4;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a2c2b4;
 }

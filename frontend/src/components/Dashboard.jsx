@@ -1,27 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Search,
   Activity,
   Database,
   ShieldCheck,
-  ExternalLink,
-  CheckCircle,
   AlertTriangle,
-  FileText,
   Layers,
+  FileText,
+  GitCompare,
+  CheckSquare,
+  GitPullRequest,
+  FileCheck2,
   ArrowRight
 } from 'lucide-react';
 import { api } from '../services/api';
 
-export default function Dashboard({ onNavigateToSearch, onSelectCandidateForComparison }) {
+export default function Dashboard({ onNavigateTab }) {
   const [sourcesStatus, setSourcesStatus] = useState(null);
   const [loadingSources, setLoadingSources] = useState(true);
   const [sourcesError, setSourcesError] = useState(null);
-  const [searchQuery, setSearchQuery] = useState('aspirin');
-  const [sourceFilter, setSourceFilter] = useState('all');
-  const [searchResults, setSearchResults] = useState(null);
-  const [searching, setSearching] = useState(false);
-  const [searchError, setSearchError] = useState(null);
 
   useEffect(() => {
     loadSourcesStatus();
@@ -106,33 +102,64 @@ export default function Dashboard({ onNavigateToSearch, onSelectCandidateForComp
   const dailymedCard = getSourceCardState('dailymed');
   const openfdaCard = getSourceCardState('openfda');
 
-  async function handleQuickSearch(e) {
-    if (e) e.preventDefault();
-    if (!searchQuery.trim()) return;
-
-    setSearching(true);
-    setSearchError(null);
-    try {
-      const data = await api.searchRegulatorySources(searchQuery, sourceFilter, null, 5);
-      setSearchResults(data);
-    } catch (err) {
-      setSearchError(err.message);
-    } finally {
-      setSearching(false);
-    }
-  }
+  const workflowSteps = [
+    {
+      id: 'review',
+      step: '01',
+      title: 'Document Review',
+      description: 'Select draft submission sections and analyze target text for regulatory reuse candidates.',
+      icon: FileText,
+      color: 'var(--color-brand)',
+    },
+    {
+      id: 'comparison',
+      step: '02',
+      title: 'Candidate Comparison',
+      description: 'Discover matching passages from DailyMed & openFDA and evaluate with 6D comparison matrix.',
+      icon: GitCompare,
+      color: 'var(--color-dailymed)',
+    },
+    {
+      id: 'decision',
+      step: '03',
+      title: 'Decision Panel',
+      description: 'Record human reviewer decisions (Accept, Reject, Modify) with mandatory regulatory rationale.',
+      icon: CheckSquare,
+      color: 'var(--color-warning)',
+    },
+    {
+      id: 'changes',
+      step: '04',
+      title: 'Change Review',
+      description: 'Detect cross-section occurrences, enforce validation rules, and review proposed changes.',
+      icon: GitPullRequest,
+      color: 'var(--color-brand-teal)',
+    },
+    {
+      id: 'report',
+      step: '05',
+      title: 'Approved Change Report',
+      description: 'Generate approved change manifest and independently verify the SHA-256 cryptographic audit trail.',
+      icon: FileCheck2,
+      color: 'var(--color-success)',
+    },
+  ];
 
   return (
     <div>
-      <div className="screen-header">
+      {/* Screen Header */}
+      <div className="screen-header" style={{ marginBottom: '1.75rem' }}>
         <div>
           <h2>Regulatory Domain Dashboard</h2>
-          <p>Real-time live regulatory intelligence, external source health, and content reuse governance</p>
+          <p style={{ maxWidth: '820px', lineHeight: '1.5' }}>
+            Regulatory Content Reuse Finder (GPR) assists regulatory affairs teams in discovering,
+            comparing, and governing content reuse across approved drug product labels and submission documents.
+          </p>
         </div>
         <button
           onClick={loadSourcesStatus}
           className="btn btn-secondary"
-          style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}
+          style={{ fontSize: '0.8rem', padding: '0.45rem 0.85rem' }}
           disabled={loadingSources}
         >
           <Activity size={14} /> {loadingSources ? 'Checking...' : 'Refresh Health'}
@@ -140,204 +167,153 @@ export default function Dashboard({ onNavigateToSearch, onSelectCandidateForComp
       </div>
 
       {sourcesError && (
-        <div style={{ marginBottom: '1.25rem', padding: '0.75rem', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid var(--color-danger)', borderRadius: 'var(--radius-sm)', color: '#fca5a5' }}>
-          <AlertTriangle size={16} style={{ verticalAlign: 'middle', marginRight: '0.5rem' }} />
-          Status fetch warning: {sourcesError}
+        <div style={{ marginBottom: '1.5rem', padding: '0.75rem 1rem', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid var(--color-danger)', borderRadius: 'var(--radius-sm)', color: '#fca5a5', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <AlertTriangle size={16} />
+          <span>Status fetch warning: {sourcesError}</span>
         </div>
       )}
 
-      {/* Top Source Health Cards */}
-      <div className="grid-3" style={{ marginBottom: '1.5rem' }}>
-        {/* DailyMed Live Source Card */}
-        <div className="card">
-          <div className="card-header">
-            <span className="card-title">
-              <Database size={16} color="var(--color-dailymed)" /> NLM DailyMed Live
-            </span>
-            <span className="badge badge-dailymed">Public Web Service</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.5rem' }}>
-            <div>
-              <div style={{ fontSize: '1.25rem', fontWeight: '700', color: '#fff' }}>
-                {dailymedCard.label}
-              </div>
-              <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                {dailymedCard.subtitle}
-              </div>
-            </div>
-            {dailymedCard.pill}
-          </div>
-          <div style={{ marginTop: '0.8rem', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-            Retrieves authoritative FDA-approved drug labels and XML sections on-demand.
-          </div>
+      {/* Live Regulatory Data Sources Section */}
+      <div style={{ marginBottom: '2rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem' }}>
+          <h3 style={{ fontSize: '0.95rem', fontWeight: '600', color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Activity size={16} color="var(--color-brand)" /> Live Regulatory Sources
+          </h3>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+            Authoritative external health authority service connectivity
+          </span>
         </div>
 
-        {/* openFDA Live Source Card */}
-        <div className="card">
-          <div className="card-header">
-            <span className="card-title">
-              <ShieldCheck size={16} color="var(--color-openfda)" /> FDA / openFDA Live
-            </span>
-            <span className="badge badge-openfda">Official FDA API</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.5rem' }}>
+        {/* 2-Column Symmetrical Grid for Live Sources */}
+        <div className="grid-2">
+          {/* DailyMed Live Source Card */}
+          <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
             <div>
-              <div style={{ fontSize: '1.25rem', fontWeight: '700', color: '#fff' }}>
-                {openfdaCard.label}
+              <div className="card-header">
+                <span className="card-title">
+                  <Database size={16} color="var(--color-dailymed)" /> NLM DailyMed Live
+                </span>
+                <span className="badge badge-dailymed">Public Web Service</span>
               </div>
-              <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                {openfdaCard.subtitle}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.5rem' }}>
+                <div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: '700', color: 'var(--text-primary)' }}>
+                    {dailymedCard.label}
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                    {dailymedCard.subtitle}
+                  </div>
+                </div>
+                {dailymedCard.pill}
               </div>
             </div>
-            {openfdaCard.pill}
+            <div style={{ marginTop: '1rem', fontSize: '0.78rem', color: 'var(--text-muted)', paddingTop: '0.75rem', borderTop: '1px solid var(--border-subtle)' }}>
+              Retrieves authoritative FDA-approved drug labels and structured SPL XML sections on-demand.
+            </div>
           </div>
-          <div style={{ marginTop: '0.8rem', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-            Provides structured NDC, indications, dosing, and contraindications.
-          </div>
-        </div>
 
-        {/* AI & Governance Architecture Card */}
-        <div className="card">
-          <div className="card-header">
-            <span className="card-title">
-              <Layers size={16} color="var(--color-brand)" /> Two-Agent Architecture
-            </span>
-            <span className="status-pill">Human Decision Gated</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.5rem' }}>
+          {/* openFDA Live Source Card */}
+          <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
             <div>
-              <div style={{ fontSize: '1.25rem', fontWeight: '700', color: '#fff' }}>
-                V1 FOUNDATION
+              <div className="card-header">
+                <span className="card-title">
+                  <ShieldCheck size={16} color="var(--color-openfda)" /> FDA / openFDA Live
+                </span>
+                <span className="badge badge-openfda">Official FDA API</span>
               </div>
-              <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                Agent 1 & 2 Initialized
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.5rem' }}>
+                <div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: '700', color: 'var(--text-primary)' }}>
+                    {openfdaCard.label}
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                    {openfdaCard.subtitle}
+                  </div>
+                </div>
+                {openfdaCard.pill}
               </div>
             </div>
-            <span className="badge" style={{ background: 'rgba(14, 165, 233, 0.1)', color: 'var(--color-brand)' }}>
-              Compliant
-            </span>
-          </div>
-          <div style={{ marginTop: '0.8rem', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-            Content Analysis (Agent 1) + Document Change (Agent 2) strictly governed by human approval.
+            <div style={{ marginTop: '1rem', fontSize: '0.78rem', color: 'var(--text-muted)', paddingTop: '0.75rem', borderTop: '1px solid var(--border-subtle)' }}>
+              Provides structured NDC directories, approved indications, dosage forms, and labeling metadata.
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Live Regulatory Query Console */}
-      <div className="card" style={{ marginBottom: '1.5rem' }}>
+      {/* Main Regulatory Workflow Navigation Section */}
+      <div className="card">
         <div className="card-header">
           <span className="card-title">
-            <Search size={16} /> Live Regulatory Content Search
+            <Layers size={16} color="var(--color-brand)" /> Regulatory Workflow Lifecycle
           </span>
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-            Searches directly against external live services
+          <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+            Sequential Human-in-the-Loop Pipeline
           </span>
         </div>
 
-        <form onSubmit={handleQuickSearch} className="input-group">
-          <input
-            type="text"
-            className="input-text"
-            placeholder="Search by drug name or active ingredient (e.g. aspirin, ibuprofen, acetaminophen)..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-          <select
-            className="select-box"
-            value={sourceFilter}
-            onChange={(e) => setSourceFilter(e.target.value)}
-          >
-            <option value="all">All Sources (DailyMed + openFDA)</option>
-            <option value="dailymed">DailyMed Only</option>
-            <option value="openfda">openFDA Only</option>
-          </select>
-          <button type="submit" className="btn btn-primary" disabled={searching}>
-            {searching ? 'Querying Live...' : 'Search Live Sources'}
-          </button>
-        </form>
+        <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '1.25rem', lineHeight: '1.5' }}>
+          Follow the five-stage regulatory lifecycle from draft document review to final cryptographic audit verification:
+        </p>
 
-        {searchError && (
-          <div style={{ marginTop: '1rem', padding: '0.75rem', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid var(--color-danger)', borderRadius: 'var(--radius-sm)', color: '#fca5a5' }}>
-            <AlertTriangle size={16} style={{ verticalAlign: 'middle', marginRight: '0.5rem' }} />
-            {searchError}
-          </div>
-        )}
-
-        {/* Live Search Results */}
-        {searchResults && (
-          <div style={{ marginTop: '1.5rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <span style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
-                Retrieved <strong>{searchResults.total_results}</strong> candidate items for query <em>"{searchResults.query}"</em>
-              </span>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                Retrieved at: {new Date(searchResults.retrieved_at).toLocaleTimeString()}
-              </span>
-            </div>
-
-            {searchResults.items.length === 0 ? (
-              <div className="empty-state">
-                <p>No regulatory records matched query "{searchResults.query}". Try a standard generic or brand name.</p>
-              </div>
-            ) : (
-              <div>
-                {searchResults.items.map((item) => (
-                  <div key={item.content_id} className="result-item">
-                    <div className="result-title">
-                      <span>{item.document_name || item.product || 'Regulatory Content'}</span>
-                      <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-                        <span className={`badge ${item.source === 'DailyMed' ? 'badge-dailymed' : 'badge-openfda'}`}>
-                          {item.source}
-                        </span>
-                        {item.section && <span className="badge badge-section">{item.section}</span>}
-                      </div>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gap: '1rem',
+          }}
+        >
+          {workflowSteps.map((wf) => {
+            const IconComponent = wf.icon;
+            return (
+              <div
+                key={wf.id}
+                onClick={() => onNavigateTab && onNavigateTab(wf.id)}
+                style={{
+                  background: 'var(--bg-surface-elevated)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '1rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  cursor: onNavigateTab ? 'pointer' : 'default',
+                  transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = 'var(--color-brand)';
+                  e.currentTarget.style.background = '#ffffff';
+                  e.currentTarget.style.boxShadow = '0 2px 8px rgba(13, 148, 136, 0.15)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = 'var(--border-subtle)';
+                  e.currentTarget.style.background = 'var(--bg-surface-elevated)';
+                  e.currentTarget.style.boxShadow = 'none';
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.65rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                      <IconComponent size={17} color={wf.color} />
+                      <strong style={{ fontSize: '0.86rem', color: 'var(--text-primary)' }}>{wf.title}</strong>
                     </div>
-
-                    <div className="result-meta">
-                      {item.source_identifier && (
-                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                          ID: <code>{item.source_identifier}</code>
-                        </span>
-                      )}
-                      {item.version && (
-                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                          v{item.version}
-                        </span>
-                      )}
-                      {item.date && (
-                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                          Date: {item.date}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="result-text">
-                      {item.text}
-                    </div>
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem' }}>
-                      {item.source_url ? (
-                        <a href={item.source_url} target="_blank" rel="noopener noreferrer" className="trace-link">
-                          <ExternalLink size={12} /> Official Regulatory Source Record
-                        </a>
-                      ) : <span />}
-
-                      {onSelectCandidateForComparison && (
-                        <button
-                          onClick={() => onSelectCandidateForComparison(item)}
-                          className="btn btn-secondary"
-                          style={{ fontSize: '0.78rem', padding: '0.35rem 0.7rem' }}
-                        >
-                          Compare with Document <ArrowRight size={12} />
-                        </button>
-                      )}
-                    </div>
+                    <span style={{ fontSize: '0.7rem', fontWeight: '700', color: 'var(--text-muted)' }}>
+                      {wf.step}
+                    </span>
                   </div>
-                ))}
+                  <p style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', lineHeight: '1.45', margin: 0 }}>
+                    {wf.description}
+                  </p>
+                </div>
+
+                {onNavigateTab && (
+                  <div style={{ marginTop: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.74rem', color: wf.color, fontWeight: '600' }}>
+                    <span>Launch Stage</span> <ArrowRight size={12} />
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        )}
+            );
+          })}
+        </div>
       </div>
     </div>
   );

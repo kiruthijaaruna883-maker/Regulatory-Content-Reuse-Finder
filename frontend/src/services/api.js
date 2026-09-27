@@ -250,6 +250,23 @@ export const api = {
   },
 
   /**
+   * Retrieve chronological workflow audit trail
+   */
+  async getAuditTrail(limit = null) {
+    const query = limit ? `?limit=${encodeURIComponent(limit)}` : "";
+    const res = await fetch(`${API_BASE}/audit${query}`);
+    return handleResponse(res);
+  },
+
+  /**
+   * Verify SHA-256 hash-chain integrity for tamper detection
+   */
+  async verifyAuditTrail() {
+    const res = await fetch(`${API_BASE}/audit/verify`);
+    return handleResponse(res);
+  },
+
+  /**
    * Download approved change report as PDF
    * Returns { blob, filename } or throws Error
    */
