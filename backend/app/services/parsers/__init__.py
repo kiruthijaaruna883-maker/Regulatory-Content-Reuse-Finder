@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional, Union
 from app.models.document import RegulatoryDocument, RegulatoryProvenance
 from app.services.parsers.base_parser import BaseDocumentParser
 from app.services.parsers.docx_parser import DocxDocumentParser
+from app.services.parsers.legacy_doc_parser import LegacyDocDocumentParser
 from app.services.parsers.html_parser import HtmlDocumentParser
 from app.services.parsers.json_parser import JsonDocumentParser
 from app.services.parsers.markdown_parser import MarkdownDocumentParser
@@ -33,6 +34,7 @@ __all__ = [
     "HtmlDocumentParser",
     "PdfDocumentParser",
     "DocxDocumentParser",
+    "LegacyDocDocumentParser",
     "get_parser",
     "parse_regulatory_document",
 ]
@@ -58,6 +60,7 @@ def get_parser(
     parsers: List[BaseDocumentParser] = [
         PdfDocumentParser(),
         DocxDocumentParser(),
+        LegacyDocDocumentParser(),
         JsonDocumentParser(),
         HtmlDocumentParser(),
         XmlDocumentParser(),

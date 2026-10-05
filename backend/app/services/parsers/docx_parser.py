@@ -37,12 +37,15 @@ class DocxDocumentParser(BaseDocumentParser):
         mime_type: Optional[str] = None,
     ) -> bool:
         """Evaluate if content or filename indicates DOCX format."""
-        if filename and filename.lower().endswith(".docx"):
-            return True
+        if filename:
+            lower_name = filename.lower()
+            if lower_name.endswith(".docx"):
+                return True
+            if lower_name.endswith(".doc"):
+                return False
         if mime_type and mime_type.lower() in (
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             "application/docx",
-            "application/msword",
         ):
             return True
 

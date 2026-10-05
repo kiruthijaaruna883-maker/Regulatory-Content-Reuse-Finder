@@ -1,7 +1,7 @@
 """Document ingestion and candidate discovery routes module.
 
 Exposes endpoints for:
-1. POST /documents/ingest: Ingest multi-format regulatory documents (TXT, MD, JSON, XML, HTML, PDF, DOCX)
+1. POST /documents/ingest: Ingest multi-format regulatory documents (TXT, MD, JSON, XML, HTML, PDF, DOC, DOCX)
    or pasted text into the Phase 3 candidate store.
 2. POST /candidates/search: On-demand candidate discovery across ingested documents and live sources
    (DailyMed, openFDA) with cross-source deduplication and full Phase 3 Step 4 traceability.
@@ -33,6 +33,7 @@ ALLOWED_EXTENSIONS = {
     ".htm",
     ".pdf",
     ".docx",
+    ".doc",
 }
 
 ALLOWED_SOURCE_FILTERS = {"all", "ingested", "internal", "dailymed", "openfda"}
@@ -162,6 +163,30 @@ async def ingest_regulatory_document(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Document parsing error: {str(exc)}",
         )
+
+    # 6b. Automatic metadata extraction if not explicitly supplied by reviewer
+    needs_product = not effective_product
+    needs_ingredient = not effective_ingredient
+    if (needs_product or needs_ingredient) and (doc.raw_content or chunks):
+        from app.services.key_information_extractor import KeyInformationExtractor
+
+        sample_text = doc.raw_content or " ".join(c.content for c in chunks[:5])
+        extractor = KeyInformationExtractor()
+        extracted_info = extractor.extract(sample_text)
+
+        if needs_product and (extracted_info.product or extracted_info.drug):
+            auto_product = extracted_info.product or extracted_info.drug
+            doc.product_name = auto_product
+            for chk in chunks:
+                if not chk.product:
+                    chk.product = auto_product
+
+        if needs_ingredient and (extracted_info.active_ingredient or extracted_info.drug):
+            auto_ingredient = extracted_info.active_ingredient or extracted_info.drug
+            doc.active_ingredient = auto_ingredient
+            for chk in chunks:
+                if not chk.active_ingredient:
+                    chk.active_ingredient = auto_ingredient
 
     # 7. Register in candidate store
     store = get_candidate_store()

@@ -21,15 +21,10 @@ CONTRAINDICATIONS
 Do not administer to individuals with known severe hypersensitivity to active salicylates or patients with active bleeding peptic ulcers.`;
 
 const ALLOWED_EXTENSIONS = [
-  '.txt',
-  '.md',
-  '.markdown',
-  '.json',
-  '.xml',
-  '.html',
-  '.htm',
   '.pdf',
-  '.docx'
+  '.doc',
+  '.docx',
+  '.txt'
 ];
 
 export default function DocumentReview({ onSelectSectionForReview }) {
@@ -210,7 +205,7 @@ export default function DocumentReview({ onSelectSectionForReview }) {
           {inputMode === 'file' ? (
             <div style={{ marginBottom: '1rem' }}>
               <label style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.3rem' }}>
-                Regulatory Document File (.txt, .md, .json, .xml, .html, .pdf, .docx)
+                Regulatory Document File (.pdf, .doc, .docx, .txt)
               </label>
               <div
                 style={{
@@ -229,7 +224,7 @@ export default function DocumentReview({ onSelectSectionForReview }) {
                   {selectedFile ? selectedFile.name : 'Click to select regulatory document file'}
                 </div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
-                  Supported formats: .txt, .md, .markdown, .json, .xml, .html, .htm, .pdf, .docx
+                  Supported formats: PDF, DOC, DOCX, TXT
                 </div>
                 {selectedFile && (
                   <div style={{ marginTop: '0.6rem', fontSize: '0.78rem', color: 'var(--color-success)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}>
@@ -239,7 +234,7 @@ export default function DocumentReview({ onSelectSectionForReview }) {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".txt,.md,.markdown,.json,.xml,.html,.htm,.pdf,.docx"
+                  accept=".pdf,.doc,.docx,.txt"
                   style={{ display: 'none' }}
                   onChange={handleFileChange}
                 />
