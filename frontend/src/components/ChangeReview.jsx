@@ -11,9 +11,80 @@ import {
   Play,
   FileText,
   Shield,
-  FileCheck2
+  FileCheck2,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { api } from '../services/api';
+
+const OCCURRENCE_DIMENSIONS = [
+  {
+    key: 'meaning',
+    label: 'Meaning',
+    number: 1,
+  },
+  {
+    key: 'template',
+    label: 'Template',
+    number: 2,
+  },
+  {
+    key: 'context',
+    label: 'Context',
+    number: 3,
+  },
+  {
+    key: 'structure',
+    label: 'Structure',
+    number: 4,
+  },
+  {
+    key: 'format',
+    label: 'Format',
+    number: 5,
+  },
+  {
+    key: 'key_information',
+    label: 'Key Information',
+    number: 6,
+  },
+];
+
+function getOccurrenceStatusStyle(status) {
+  const st = (status || '').toUpperCase();
+  if (st === 'MATCH') {
+    return {
+      background: 'rgba(16, 185, 129, 0.15)',
+      color: 'var(--color-success)',
+      border: '1px solid rgba(16, 185, 129, 0.35)',
+    };
+  }
+  if (st === 'PARTIAL') {
+    return {
+      background: 'rgba(245, 158, 11, 0.15)',
+      color: 'var(--color-warning)',
+      border: '1px solid rgba(245, 158, 11, 0.35)',
+    };
+  }
+  if (st === 'MISMATCH') {
+    return {
+      background: 'rgba(239, 68, 68, 0.15)',
+      color: 'var(--color-danger)',
+      border: '1px solid rgba(239, 68, 68, 0.35)',
+    };
+  }
+  return {
+    background: 'var(--bg-surface-elevated)',
+    color: 'var(--text-secondary)',
+    border: '1px solid var(--border-subtle)',
+  };
+}
+
+function getScoreBarColor(score) {
+  if (score >= 0.8) return 'var(--color-success)';
+  if (score >= 0.5) return 'var(--color-warning)';
+  return 'var(--color-danger)';
+}
 
 export default function ChangeReview({ activeDecision, comparisonContext, onReportApproved }) {
   const [proposals, setProposals] = useState([]);
@@ -25,6 +96,16 @@ export default function ChangeReview({ activeDecision, comparisonContext, onRepo
   // Reviewer confirmation state per related occurrence (key: occurrence_id -> 'CONFIRMED' | 'EXCLUDED')
   // CRITICAL SAFETY CONSTRAINT: Must start empty/null (NOT CONFIRMED). No occurrence starts confirmed.
   const [occurrenceSelections, setOccurrenceSelections] = useState({});
+
+  // 6D occurrence evidence expansion state (key: occurrence_id / occKey -> boolean)
+  const [expandedEvidence, setExpandedEvidence] = useState({});
+
+  function toggleOccurrenceEvidence(key) {
+    setExpandedEvidence((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  }
 
   // Human regulatory approval gate state (Step 6.7)
   // CRITICAL SAFETY CONSTRAINTS: Must never prefill approver identity; must never default to true!
@@ -775,6 +856,192 @@ export default function ChangeReview({ activeDecision, comparisonContext, onRepo
                             {occ.reason && (
                               <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
                                 <strong>Matching Basis:</strong> {occ.reason}
+                              </div>
+                            )}
+
+                            {/* 6D Alignment Evidence Section (Phase 6E) */}
+                            {Boolean(occ.dimensional_scores && occ.dimensional_evidence) && (
+                              <div
+                                style={{
+                                  margin: '0.6rem 0',
+                                  padding: '0.6rem',
+                                  background: 'rgba(255, 255, 255, 0.02)',
+                                  border: '1px solid var(--border-subtle)',
+                                  borderRadius: 'var(--radius-sm)',
+                                }}
+                              >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+                                  <span style={{ fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-brand)', fontWeight: '600' }}>
+                                    6D Alignment Evidence
+                                  </span>
+                                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                                    Multi-dimensional comparison across 6 regulatory dimensions
+                                  </span>
+                                </div>
+
+                                {/* Six Compact Summary Pills */}
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '0.55rem' }}>
+                                  {OCCURRENCE_DIMENSIONS.map((dim) => {
+                                    const evalData = occ.dimensional_evidence?.[dim.key];
+                                    const rawScore = occ.dimensional_scores?.[dim.key] ?? evalData?.score;
+                                    const scorePct = rawScore !== undefined && rawScore !== null ? Math.round(rawScore * 100) : null;
+                                    const status = evalData?.status || 'NOT_APPLICABLE';
+                                    const badgeStyle = getOccurrenceStatusStyle(status);
+
+                                    return (
+                                      <div
+                                        key={dim.key}
+                                        style={{
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '0.35rem',
+                                          padding: '0.2rem 0.45rem',
+                                          borderRadius: 'var(--radius-sm)',
+                                          fontSize: '0.7rem',
+                                          border: badgeStyle.border,
+                                          background: badgeStyle.background,
+                                          color: badgeStyle.color,
+                                        }}
+                                      >
+                                        <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>{dim.label}:</span>
+                                        {scorePct !== null && <span>{scorePct}%</span>}
+                                        <span style={{ fontWeight: '700' }}>{status}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+
+                                {/* Expand/Collapse Toggle Button */}
+                                <div>
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleOccurrenceEvidence(occKey)}
+                                    aria-expanded={Boolean(expandedEvidence[occKey])}
+                                    aria-controls={`evidence-panel-${occKey}`}
+                                    className="btn btn-secondary"
+                                    style={{
+                                      width: '100%',
+                                      fontSize: '0.72rem',
+                                      padding: '0.3rem 0.6rem',
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      background: 'var(--bg-surface-elevated)',
+                                      border: '1px solid var(--border-subtle)',
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    <span>
+                                      {expandedEvidence[occKey]
+                                        ? 'Hide 6D Evidence & Reasoning'
+                                        : 'Inspect 6D Evidence & Reasoning'}
+                                    </span>
+                                    {expandedEvidence[occKey] ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                                  </button>
+
+                                  {/* Expanded Dimension Details */}
+                                  {expandedEvidence[occKey] && (
+                                    <div
+                                      id={`evidence-panel-${occKey}`}
+                                      style={{
+                                        marginTop: '0.55rem',
+                                        display: 'grid',
+                                        gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                                        gap: '0.55rem',
+                                      }}
+                                    >
+                                      {OCCURRENCE_DIMENSIONS.map((dim) => {
+                                        const evalData = occ.dimensional_evidence?.[dim.key];
+                                        const rawScore = occ.dimensional_scores?.[dim.key] ?? evalData?.score;
+                                        const scorePct = rawScore !== undefined && rawScore !== null ? Math.round(rawScore * 100) : null;
+                                        const status = evalData?.status || 'NOT_APPLICABLE';
+                                        const badgeStyle = getOccurrenceStatusStyle(status);
+
+                                        return (
+                                          <div
+                                            key={dim.key}
+                                            style={{
+                                              background: 'var(--bg-surface-elevated)',
+                                              border: '1px solid var(--border-subtle)',
+                                              borderRadius: 'var(--radius-sm)',
+                                              padding: '0.55rem',
+                                              display: 'flex',
+                                              flexDirection: 'column',
+                                              gap: '0.35rem',
+                                            }}
+                                          >
+                                            {/* Header: Dimension Number & Label + Status Badge */}
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                              <strong style={{ fontSize: '0.76rem', color: '#fff' }}>
+                                                {dim.number}. {dim.label}
+                                              </strong>
+                                              <span
+                                                className="badge"
+                                                style={{
+                                                  fontSize: '0.64rem',
+                                                  padding: '0.15rem 0.35rem',
+                                                  ...badgeStyle,
+                                                }}
+                                              >
+                                                {status}
+                                              </span>
+                                            </div>
+
+                                            {/* Score & Progress Bar */}
+                                            {scorePct !== null && (
+                                              <div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: 'var(--text-secondary)', marginBottom: '0.15rem' }}>
+                                                  <span>Alignment Score</span>
+                                                  <strong style={{ color: '#fff' }}>{scorePct}%</strong>
+                                                </div>
+                                                <div style={{ height: '4px', background: 'rgba(255, 255, 255, 0.08)', borderRadius: '2px', overflow: 'hidden' }}>
+                                                  <div
+                                                    style={{
+                                                      height: '100%',
+                                                      width: `${Math.min(Math.max(scorePct, 0), 100)}%`,
+                                                      background: getScoreBarColor(rawScore),
+                                                    }}
+                                                  />
+                                                </div>
+                                              </div>
+                                            )}
+
+                                            {/* Details */}
+                                            {evalData?.details && (
+                                              <p style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', margin: '0.2rem 0', lineHeight: 1.4 }}>
+                                                {evalData.details}
+                                              </p>
+                                            )}
+
+                                            {/* Observed from Source */}
+                                            {evalData?.observed_from_source && (
+                                              <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '0.25rem', marginTop: '0.15rem' }}>
+                                                <span style={{ color: 'var(--color-brand)', fontWeight: '600', fontSize: '0.66rem', display: 'block', marginBottom: '0.1rem' }}>
+                                                  Observed from Source:
+                                                </span>
+                                                <span style={{ color: 'var(--text-secondary)', fontSize: '0.69rem', wordBreak: 'break-word', fontFamily: 'monospace' }}>
+                                                  {evalData.observed_from_source}
+                                                </span>
+                                              </div>
+                                            )}
+
+                                            {/* Model Interpretation */}
+                                            {evalData?.model_interpretation && (
+                                              <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '0.25rem', marginTop: '0.15rem' }}>
+                                                <span style={{ color: 'var(--color-openfda)', fontWeight: '600', fontSize: '0.66rem', display: 'block', marginBottom: '0.1rem' }}>
+                                                  Model Interpretation:
+                                                </span>
+                                                <span style={{ color: 'var(--text-secondary)', fontSize: '0.69rem', wordBreak: 'break-word' }}>
+                                                  {evalData.model_interpretation}
+                                                </span>
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             )}
 
