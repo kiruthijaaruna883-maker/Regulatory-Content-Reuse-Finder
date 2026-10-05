@@ -29,6 +29,7 @@ from app.models.document_change import (
 from app.services.change_report import ChangeReportService
 from app.services.content_classifier import ContentClassifier
 from app.services.key_information_extractor import KeyInformationExtractor
+from app.services.multi_dimensional_comparator import MultiDimensionalComparator
 from app.services.validation import ValidationService
 from app.services.vector_store import VectorStore
 
@@ -44,13 +45,14 @@ class RegulatoryDocumentChangeAgent:
         openai_model: Optional[str] = None,
         vector_store: Optional[VectorStore] = None,
     ):
-        self.api_key = openai_api_key or settings.OPENAI_API_KEY
+        self.api_key = openai_api_key if openai_api_key is not None else settings.OPENAI_API_KEY
         self.model = openai_model or settings.OPENAI_MODEL
         self.validator = ValidationService()
         self.reporter = ChangeReportService()
         self.extractor = KeyInformationExtractor()
         self.classifier = ContentClassifier()
         self.vector_store = vector_store or VectorStore()
+        self.comparator = MultiDimensionalComparator()
         self.has_llm = bool(self.api_key and len(self.api_key.strip()) > 5)
 
     def formulate_change_proposal(
@@ -294,6 +296,62 @@ class RegulatoryDocumentChangeAgent:
                 snippet_key = f"{sec_name}:{text[:60]}"
                 if snippet_key not in seen_snippets:
                     seen_snippets.add(snippet_key)
+
+                    # Build compatible candidate RegulatoryContentItem for 6D evaluation
+                    cand_item = RegulatoryContentItem(
+                        content_id=f"cand_occ_{len(seen_snippets)}",
+                        source=sec.get("source", "Internal Draft"),
+                        source_url=sec.get("source_url"),
+                        source_identifier=sec.get("source_identifier"),
+                        document_name=doc_name,
+                        version=doc_version,
+                        section=sec_name,
+                        subsection=sec.get("subsection"),
+                        location=sec.get("location"),
+                        content_type=sec.get("content_type"),
+                        text=text,
+                        key_information=cand_key_info,
+                    )
+
+                    # Run 6-dimensional comparison to generate rich evidence
+                    dimensional_evidence: Optional[Dict[str, Any]] = None
+                    dimensional_scores: Optional[Dict[str, float]] = None
+                    evidence_explanation = (
+                        f"Occurrence identified via {match_type} in '{sec_name}'. "
+                        f"Validated against false-match protection for drug entity integrity."
+                    )
+
+                    try:
+                        match_res, _, _, _ = self.comparator.compare(
+                            target_text=target_text or clean_phrase,
+                            candidate=cand_item,
+                            target_key_info=target_key_info,
+                            target_section=sec_name,
+                            target_document_name=doc_name,
+                            target_location=sec.get("location"),
+                        )
+                        dim_names = ["meaning", "template", "context", "structure", "format", "key_information"]
+                        dimensional_evidence = {
+                            dim: getattr(match_res, dim).model_dump()
+                            for dim in dim_names
+                        }
+                        dimensional_scores = {
+                            dim: getattr(match_res, dim).score
+                            for dim in dim_names
+                        }
+                        dim_summary_parts = []
+                        for dim in dim_names:
+                            dim_eval = getattr(match_res, dim)
+                            status_val = dim_eval.status.value if hasattr(dim_eval.status, "value") else str(dim_eval.status)
+                            dim_summary_parts.append(f"{dim.replace('_', ' ').title()}={status_val}")
+                        evidence_explanation = (
+                            f"Occurrence identified via {match_type} in '{sec_name}'. "
+                            f"Validated against false-match protection for drug entity integrity. "
+                            f"6D alignment evidence: {', '.join(dim_summary_parts)}."
+                        )
+                    except Exception as comp_exc:
+                        logger.warning("6D comparison for occurrence in %s encountered error: %s", sec_name, comp_exc)
+
                     occurrences.append(
                         RelatedOccurrence(
                             document_name=doc_name,
@@ -307,10 +365,9 @@ class RegulatoryDocumentChangeAgent:
                             source_identifier=sec.get("source_identifier"),
                             source_url=sec.get("source_url"),
                             reason=reason,
-                            evidence_explanation=(
-                                f"Occurrence identified via {match_type} in '{sec_name}'. "
-                                f"Validated against false-match protection for drug entity integrity."
-                            ),
+                            evidence_explanation=evidence_explanation,
+                            dimensional_evidence=dimensional_evidence,
+                            dimensional_scores=dimensional_scores,
                         )
                     )
 

@@ -79,6 +79,14 @@ class RelatedOccurrence(BaseModel):
         default="PENDING",
         description="Reviewer confirmation status: PENDING (unreviewed), CONFIRMED (included in coordinated change), EXCLUDED (preserved/excluded)",
     )
+    dimensional_evidence: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Six-dimensional alignment evidence for this occurrence.",
+    )
+    dimensional_scores: Optional[Dict[str, float]] = Field(
+        default=None,
+        description="Six-dimensional alignment scores for this occurrence.",
+    )
 
 
 class ConfirmOccurrencesRequest(BaseModel):
