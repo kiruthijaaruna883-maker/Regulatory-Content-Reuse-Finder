@@ -4,14 +4,12 @@ import {
   LayoutDashboard,
   FileText,
   GitCompare,
-  CheckSquare,
   GitPullRequest,
   FileCheck2
 } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import DocumentReview from './components/DocumentReview';
 import CandidateComparison from './components/CandidateComparison';
-import DecisionPanel from './components/DecisionPanel';
 import ChangeReview from './components/ChangeReview';
 import ApprovedChangeReport from './components/ApprovedChangeReport';
 
@@ -23,46 +21,51 @@ export default function App() {
   const [comparisonContext, setComparisonContext] = useState(null);
   const [approvedReport, setApprovedReport] = useState(null);
 
-  // Transition helper from Search/Dashboard to Comparison
+  // Transition helper from Search/Dashboard to Comparison & Decision
   function handleSelectCandidateForComparison(candidate) {
     setSelectedCandidate(candidate);
     setActiveTab('comparison');
   }
 
-  // Transition helper from Document Review to Comparison
+  // Transition helper from Document Review to Comparison & Decision
   function handleSelectSectionForReview(section) {
     setSelectedSection(section);
     setActiveTab('comparison');
   }
 
-  // Transition helper from Comparison to Decision Panel
+  // Transition helper for legacy onProceedToDecision (kept for backward compatibility)
   function handleProceedToDecision(data) {
     const candidate = data.candidateItem || null;
     setSelectedCandidate(candidate);
-    setComparisonContext({
-      targetText: data.targetText || null,
-      candidateText: data.candidateText || null,
-      differences: data.differences || [],
-      candidateItem: candidate,
-      analysisResult: data.analysisResult || null,
-      targetSection: selectedSection || (data.analysisResult?.target_section ? {
-        section: data.analysisResult.target_section,
-        document_name: data.analysisResult.target_document_name,
-        document_id: data.analysisResult.target_document_id,
-        content_id: data.analysisResult.target_content_id,
-        subsection: data.analysisResult.target_subsection,
-        location: data.analysisResult.target_location,
-        page: data.analysisResult.target_page,
-        content_type: data.analysisResult.target_content_type,
-        text: data.targetText,
-      } : null),
-    });
-    setActiveTab('decision');
+    if (data) {
+      setComparisonContext({
+        targetText: data.targetText || null,
+        candidateText: data.candidateText || null,
+        differences: data.differences || [],
+        candidateItem: candidate,
+        analysisResult: data.analysisResult || null,
+        targetSection: selectedSection || (data.analysisResult?.target_section ? {
+          section: data.analysisResult.target_section,
+          document_name: data.analysisResult.target_document_name,
+          document_id: data.analysisResult.target_document_id,
+          content_id: data.analysisResult.target_content_id,
+          subsection: data.analysisResult.target_subsection,
+          location: data.analysisResult.target_location,
+          page: data.analysisResult.target_page,
+          content_type: data.analysisResult.target_content_type,
+          text: data.targetText,
+        } : null),
+      });
+    }
+    setActiveTab('comparison');
   }
 
-  // Transition helper from Decision Panel to Change Review
-  function handleDecisionRecorded(decision) {
+  // Transition helper from Comparison & Decision to Change Review
+  function handleDecisionRecorded(decision, extraContext = null) {
     setActiveDecision(decision);
+    if (extraContext) {
+      setComparisonContext((prev) => ({ ...prev, ...extraContext }));
+    }
     setActiveTab('changes');
   }
 
@@ -86,7 +89,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* Core Regulatory Workflow Tabs */}
+        {/* Core Regulatory Workflow Tabs (Phase 6G.5 Consolidated to 5 Stages) */}
         <nav className="nav-tabs">
           <button
             onClick={() => setActiveTab('dashboard')}
@@ -104,16 +107,9 @@ export default function App() {
 
           <button
             onClick={() => setActiveTab('comparison')}
-            className={`nav-tab ${activeTab === 'comparison' ? 'active' : ''}`}
+            className={`nav-tab ${activeTab === 'comparison' || activeTab === 'decision' ? 'active' : ''}`}
           >
-            <GitCompare size={15} /> Candidate Comparison
-          </button>
-
-          <button
-            onClick={() => setActiveTab('decision')}
-            className={`nav-tab ${activeTab === 'decision' ? 'active' : ''}`}
-          >
-            <CheckSquare size={15} /> Decision Panel
+            <GitCompare size={15} /> Candidate Comparison & Decision
           </button>
 
           <button
@@ -155,17 +151,11 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'comparison' && (
+        {(activeTab === 'comparison' || activeTab === 'decision') && (
           <CandidateComparison
             targetSection={selectedSection}
             candidateItem={selectedCandidate}
             onProceedToDecision={handleProceedToDecision}
-          />
-        )}
-
-        {activeTab === 'decision' && (
-          <DecisionPanel
-            comparisonData={comparisonContext}
             onDecisionRecorded={handleDecisionRecorded}
           />
         )}

@@ -7,7 +7,6 @@ import {
   Layers,
   FileText,
   GitCompare,
-  CheckSquare,
   GitPullRequest,
   FileCheck2,
   ArrowRight
@@ -114,22 +113,14 @@ export default function Dashboard({ onNavigateTab }) {
     {
       id: 'comparison',
       step: '02',
-      title: 'Candidate Comparison',
-      description: 'Discover matching passages from DailyMed & openFDA and evaluate with 6D comparison matrix.',
+      title: 'Candidate Comparison & Decision',
+      description: 'Discover matching passages from DailyMed & openFDA, evaluate with 6D comparison matrix, and authorize human decisions.',
       icon: GitCompare,
       color: 'var(--color-dailymed)',
     },
     {
-      id: 'decision',
-      step: '03',
-      title: 'Decision Panel',
-      description: 'Record human reviewer decisions (Accept, Reject, Modify) with mandatory regulatory rationale.',
-      icon: CheckSquare,
-      color: 'var(--color-warning)',
-    },
-    {
       id: 'changes',
-      step: '04',
+      step: '03',
       title: 'Change Review',
       description: 'Detect cross-section occurrences, enforce validation rules, and review proposed changes.',
       icon: GitPullRequest,
@@ -137,7 +128,7 @@ export default function Dashboard({ onNavigateTab }) {
     },
     {
       id: 'report',
-      step: '05',
+      step: '04',
       title: 'Approved Change Report',
       description: 'Generate approved change manifest and independently verify the SHA-256 cryptographic audit trail.',
       icon: FileCheck2,
@@ -252,7 +243,7 @@ export default function Dashboard({ onNavigateTab }) {
         </div>
 
         <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '1.25rem', lineHeight: '1.5' }}>
-          Follow the five-stage regulatory lifecycle from draft document review to final cryptographic audit verification:
+          Follow the four-stage regulatory lifecycle from draft document review to final cryptographic audit verification:
         </p>
 
         <div

@@ -13,7 +13,10 @@ import {
   ChevronUp,
   FileText,
   Sliders,
-  Sparkles
+  Sparkles,
+  XCircle,
+  Send,
+  ShieldCheck
 } from 'lucide-react';
 import { api } from '../services/api';
 
@@ -59,7 +62,8 @@ const DIMENSIONS = [
 export default function CandidateComparison({
   targetSection,
   candidateItem,
-  onProceedToDecision,
+  _onProceedToDecision,
+  onDecisionRecorded,
 }) {
   // Target Content State
   const [targetText, setTargetText] = useState(
@@ -73,6 +77,16 @@ export default function CandidateComparison({
     candidateItem?.text ||
       'Adults: Take 1 to 2 tablets (500 mg) orally every 4 to 6 hours as needed. Maximum dosage: 8 tablets in 24 hours.'
   );
+
+  // Human Candidate Decision State (Consolidated in Phase 6G.5)
+  const [selectedDecision, setSelectedDecision] = useState(null); // Explicit choice: REUSE | ADAPT | REJECT (defaults to null)
+  const [reviewerName, setReviewerName] = useState('');
+  const [reviewerNotes, setReviewerNotes] = useState('');
+  const [adaptationInstructions, setAdaptationInstructions] = useState('');
+  const [submittingDecision, setSubmittingDecision] = useState(false);
+  const [decisionValidationError, setDecisionValidationError] = useState(null);
+  const [decisionSubmitError, setDecisionSubmitError] = useState(null);
+  const [recordedDecision, setRecordedDecision] = useState(null);
 
   // Candidate Discovery Search State (Step 6.3 preserved)
   const [searchQuery, setSearchQuery] = useState(
@@ -233,6 +247,10 @@ export default function CandidateComparison({
     setAnalysisResult(null);
     setAnalysisError(null);
     setSelectedCandidateIndex(0);
+    setSelectedDecision(null);
+    setDecisionValidationError(null);
+    setDecisionSubmitError(null);
+    setRecordedDecision(null);
   }
 
   // Set active candidate from analyzed candidates list (Phase 6G.2)
@@ -245,6 +263,10 @@ export default function CandidateComparison({
       setCandidateText(underlying.text || '');
       setDifferences(comp.differences || []);
       setAnalysisError(null);
+      setSelectedDecision(null);
+      setDecisionValidationError(null);
+      setDecisionSubmitError(null);
+      setRecordedDecision(null);
     }
   }
 
@@ -391,6 +413,125 @@ export default function CandidateComparison({
     acc[dim] = (acc[dim] || 0) + 1;
     return acc;
   }, {});
+
+  // Derived Provenance Identifiers for Decision Authorization
+  const targetContentId =
+    targetSection?.content_id ||
+    analysisResult?.target_content_id ||
+    analysisResult?.candidates?.[0]?.evidence?.[0]?.target_facts?.target_content_id ||
+    null;
+
+  const candidateId =
+    selectedCandidate?.content_id ||
+    primaryCandidate?.candidate?.content_id ||
+    primaryCandidate?.content_item?.content_id ||
+    primaryCandidate?.candidate_id ||
+    null;
+
+  // Advisory Recommendation Signals (Phase 6G.2 & 6G.3)
+  const recommendedDecision =
+    primaryCandidate?.recommended_decision ||
+    selectedCandidate?.recommended_decision ||
+    null;
+  const recommendationReason =
+    primaryCandidate?.recommendation_reason ||
+    selectedCandidate?.recommendation_reason ||
+    null;
+  const recommendationConfidence =
+    primaryCandidate?.recommendation_confidence ??
+    selectedCandidate?.recommendation_confidence ??
+    null;
+  const proposedAdaptedText =
+    primaryCandidate?.proposed_adapted_text ||
+    selectedCandidate?.proposed_adapted_text ||
+    null;
+  const adaptationRationale =
+    primaryCandidate?.adaptation_rationale ||
+    selectedCandidate?.adaptation_rationale ||
+    null;
+
+  // Step 6G.5 Human Decision Authorization Handler
+  async function handleSubmitDecision() {
+    setDecisionValidationError(null);
+    setDecisionSubmitError(null);
+
+    // 1. Validate Decision Selection (Explicit choice required)
+    if (!selectedDecision) {
+      setDecisionValidationError('An explicit regulatory action (Reuse, Adapt, or Reject) must be selected.');
+      return;
+    }
+
+    // 2. Validate Provenance Context
+    if (!targetContentId || !candidateId) {
+      setDecisionValidationError(
+        'Valid target and candidate content identifiers are required to authorize a decision. Ensure target draft and candidate reference items are selected to establish full audit traceability.'
+      );
+      return;
+    }
+
+    // 3. Validate Reviewer Name
+    if (!reviewerName.trim()) {
+      setDecisionValidationError('Reviewer name and regulatory authority title are required.');
+      return;
+    }
+
+    // 4. Validate Reviewer Rationale
+    if (!reviewerNotes.trim()) {
+      setDecisionValidationError(
+        'Professional rationale and clinical justification are mandatory for all regulatory decisions.'
+      );
+      return;
+    }
+
+    // 5. Validate Adaptation Instructions when ADAPT is selected
+    if (selectedDecision === 'ADAPT' && !adaptationInstructions.trim()) {
+      setDecisionValidationError('Specific adaptation instructions are mandatory when selecting ADAPT.');
+      return;
+    }
+
+    setSubmittingDecision(true);
+    try {
+      const decisionPayload = {
+        target_content_id: targetContentId,
+        candidate_id: candidateId,
+        decision: selectedDecision,
+        reviewer_name: reviewerName.trim(),
+        reviewer_notes: reviewerNotes.trim(),
+        adaptation_instructions: selectedDecision === 'ADAPT' ? adaptationInstructions.trim() : null,
+      };
+
+      const result = await api.recordDecision(decisionPayload);
+      setRecordedDecision(result);
+    } catch (err) {
+      setDecisionSubmitError(err.message || 'Failed to record regulatory decision.');
+    } finally {
+      setSubmittingDecision(false);
+    }
+  }
+
+  function handleProceedToChangeReview() {
+    if (onDecisionRecorded && recordedDecision) {
+      const context = {
+        targetText,
+        candidateText,
+        differences,
+        candidateItem: selectedCandidate,
+        analysisResult,
+        targetSection: targetSection || (analysisResult?.target_section ? {
+          section: analysisResult.target_section,
+          document_name: analysisResult.target_document_name,
+          document_id: analysisResult.target_document_id,
+          content_id: analysisResult.target_content_id,
+          subsection: analysisResult.target_subsection,
+          location: analysisResult.target_location,
+          page: analysisResult.target_page,
+          content_type: analysisResult.target_content_type,
+          text: targetText,
+        } : null),
+      };
+      onDecisionRecorded(recordedDecision, context);
+    }
+  }
 
   return (
     <div>
@@ -1330,23 +1471,17 @@ export default function CandidateComparison({
             </span>
           </div>
 
-          {onProceedToDecision && (
-            <button
-              onClick={() =>
-                onProceedToDecision({
-                  targetText,
-                  candidateText,
-                  differences,
-                  candidateItem: selectedCandidate,
-                  analysisResult,
-                })
-              }
-              className="btn btn-primary"
-              style={{ fontSize: '0.82rem', padding: '0.4rem 0.85rem' }}
-            >
-              Proceed to Decision Panel <ArrowRight size={13} />
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => {
+              const el = document.getElementById('decision-station');
+              if (el) el.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="btn btn-primary"
+            style={{ fontSize: '0.82rem', padding: '0.4rem 0.85rem' }}
+          >
+            Record Regulatory Decision <ArrowRight size={13} />
+          </button>
         </div>
 
         {/* Dimension Filter Tabs for Differences */}
@@ -1480,49 +1615,450 @@ export default function CandidateComparison({
           </div>
         )}
 
-        {/* Phase 6G.2 Transition to Human Governance Action Bar */}
-        <div
-          style={{
-            marginTop: '1.5rem',
-            padding: '1.1rem 1.25rem',
-            background: 'var(--bg-surface)',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: 'var(--radius-md)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            gap: '1rem',
-            boxShadow: 'var(--shadow-card)',
-          }}
-        >
+      </div>
+
+      {/* 5. Regulatory Governance Decision Station (Consolidated in Phase 6G.5) */}
+      <div id="decision-station" className="card" style={{ marginTop: '1.5rem', borderTop: '2px solid var(--color-brand)' }}>
+        <div className="card-header">
           <div>
-            <strong style={{ fontSize: '0.92rem', color: 'var(--text-primary)', display: 'block', marginBottom: '0.2rem' }}>
-              Human Governance Gate Ready
-            </strong>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.45 }}>
-              Transfer comparison evidence and advisory signals to the Decision Panel for formal regulatory authorization.
+            <span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+              <ShieldCheck size={18} color="var(--color-brand)" /> Regulatory Governance Decision Station
+            </span>
+            <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0 0' }}>
+              Sole human regulatory professional authorization: Review 6D evidence and mandate Reuse, Adapt, or Reject
             </p>
           </div>
+          <span className="status-pill">
+            Sole Human Authorization
+          </span>
+        </div>
+
+        {/* Advisory Recommendation Context Banner */}
+        {recommendedDecision && (
+          <div
+            style={{
+              marginBottom: '1.25rem',
+              padding: '0.85rem 1.1rem',
+              background:
+                recommendedDecision === 'REUSE'
+                  ? 'rgba(21, 128, 61, 0.08)'
+                  : recommendedDecision === 'ADAPT'
+                  ? 'rgba(180, 83, 9, 0.08)'
+                  : 'rgba(185, 28, 28, 0.08)',
+              border: `1.5px solid ${
+                recommendedDecision === 'REUSE'
+                  ? 'rgba(21, 128, 61, 0.35)'
+                  : recommendedDecision === 'ADAPT'
+                  ? 'rgba(180, 83, 9, 0.35)'
+                  : 'rgba(185, 28, 28, 0.35)'
+              }`,
+              borderRadius: 'var(--radius-md)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span
+                  className="badge"
+                  style={{
+                    fontSize: '0.76rem',
+                    fontWeight: '700',
+                    padding: '0.2rem 0.55rem',
+                    background:
+                      recommendedDecision === 'REUSE'
+                        ? 'rgba(21, 128, 61, 0.18)'
+                        : recommendedDecision === 'ADAPT'
+                        ? 'rgba(180, 83, 9, 0.18)'
+                        : 'rgba(185, 28, 28, 0.18)',
+                    color:
+                      recommendedDecision === 'REUSE'
+                        ? 'var(--color-success)'
+                        : recommendedDecision === 'ADAPT'
+                        ? 'var(--color-warning)'
+                        : 'var(--color-danger)',
+                  }}
+                >
+                  {recommendedDecision}
+                </span>
+                <strong style={{ fontSize: '0.88rem', color: 'var(--text-primary)' }}>
+                  ADVISORY RECOMMENDATION — HUMAN GOVERNANCE REQUIRED
+                </strong>
+              </div>
+              {recommendationConfidence !== null && recommendationConfidence !== undefined && (
+                <span
+                  style={{
+                    fontSize: '0.74rem',
+                    color: 'var(--text-secondary)',
+                    fontWeight: '600',
+                    background: 'var(--bg-surface)',
+                    padding: '0.2rem 0.5rem',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border-subtle)',
+                  }}
+                >
+                  Advisory Confidence: {Math.round(recommendationConfidence * 100)}%
+                </span>
+              )}
+            </div>
+
+            {recommendationReason && (
+              <p style={{ fontSize: '0.82rem', color: 'var(--text-primary)', margin: '0.3rem 0', lineHeight: 1.45 }}>
+                {recommendationReason}
+              </p>
+            )}
+
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block' }}>
+              Advisory output only. You must evaluate clinical alignment independently and deliberately select your decision below. You may adopt or override this recommendation.
+            </span>
+          </div>
+        )}
+
+        {/* Decision Option Buttons: Explicit Human Selection */}
+        <div style={{ marginBottom: '1.5rem' }}>
+          <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.6rem', fontWeight: '500' }}>
+            Select Controlled Action * <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>(No default preselection; deliberate human choice required)</span>
+          </label>
+          <div className="grid-3">
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedDecision('REUSE');
+                setDecisionValidationError(null);
+              }}
+              className={`btn ${selectedDecision === 'REUSE' ? 'btn-reuse' : 'btn-secondary'}`}
+              style={{
+                flexDirection: 'column',
+                padding: '1.1rem',
+                borderWidth: selectedDecision === 'REUSE' ? '2px' : '1px',
+                borderColor: selectedDecision === 'REUSE' ? 'var(--color-success)' : 'var(--border-subtle)',
+                position: 'relative',
+              }}
+            >
+              {recommendedDecision === 'REUSE' && (
+                <span
+                  className="badge"
+                  style={{
+                    fontSize: '0.68rem',
+                    fontWeight: '700',
+                    background: 'rgba(21, 128, 61, 0.18)',
+                    color: 'var(--color-success)',
+                    border: '1px solid rgba(21, 128, 61, 0.35)',
+                    marginBottom: '0.35rem',
+                  }}
+                >
+                  System Recommended
+                </span>
+              )}
+              <CheckCircle2 size={24} color={selectedDecision === 'REUSE' ? 'var(--color-success)' : 'var(--text-muted)'} />
+              <strong style={{ marginTop: '0.4rem', fontSize: '1rem' }}>REUSE</strong>
+              <span style={{ fontSize: '0.72rem', opacity: 0.85, textAlign: 'center', marginTop: '0.2rem' }}>
+                Direct adoption of validated external regulatory standard
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedDecision('ADAPT');
+                setDecisionValidationError(null);
+              }}
+              className={`btn ${selectedDecision === 'ADAPT' ? 'btn-adapt' : 'btn-secondary'}`}
+              style={{
+                flexDirection: 'column',
+                padding: '1.1rem',
+                borderWidth: selectedDecision === 'ADAPT' ? '2px' : '1px',
+                borderColor: selectedDecision === 'ADAPT' ? 'var(--color-warning)' : 'var(--border-subtle)',
+                position: 'relative',
+              }}
+            >
+              {recommendedDecision === 'ADAPT' && (
+                <span
+                  className="badge"
+                  style={{
+                    fontSize: '0.68rem',
+                    fontWeight: '700',
+                    background: 'rgba(180, 83, 9, 0.18)',
+                    color: 'var(--color-warning)',
+                    border: '1px solid rgba(180, 83, 9, 0.35)',
+                    marginBottom: '0.35rem',
+                  }}
+                >
+                  System Recommended
+                </span>
+              )}
+              <Sliders size={24} color={selectedDecision === 'ADAPT' ? 'var(--color-warning)' : 'var(--text-muted)'} />
+              <strong style={{ marginTop: '0.4rem', fontSize: '1rem' }}>ADAPT</strong>
+              <span style={{ fontSize: '0.72rem', opacity: 0.85, textAlign: 'center', marginTop: '0.2rem' }}>
+                Modify candidate with product-specific clinical adaptations
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedDecision('REJECT');
+                setDecisionValidationError(null);
+              }}
+              className={`btn ${selectedDecision === 'REJECT' ? 'btn-reject' : 'btn-secondary'}`}
+              style={{
+                flexDirection: 'column',
+                padding: '1.1rem',
+                borderWidth: selectedDecision === 'REJECT' ? '2px' : '1px',
+                borderColor: selectedDecision === 'REJECT' ? 'var(--color-danger)' : 'var(--border-subtle)',
+                position: 'relative',
+              }}
+            >
+              {recommendedDecision === 'REJECT' && (
+                <span
+                  className="badge"
+                  style={{
+                    fontSize: '0.68rem',
+                    fontWeight: '700',
+                    background: 'rgba(185, 28, 28, 0.18)',
+                    color: 'var(--color-danger)',
+                    border: '1px solid rgba(185, 28, 28, 0.35)',
+                    marginBottom: '0.35rem',
+                  }}
+                >
+                  System Recommended
+                </span>
+              )}
+              <XCircle size={24} color={selectedDecision === 'REJECT' ? 'var(--color-danger)' : 'var(--text-muted)'} />
+              <strong style={{ marginTop: '0.4rem', fontSize: '1rem' }}>REJECT</strong>
+              <span style={{ fontSize: '0.72rem', opacity: 0.85, textAlign: 'center', marginTop: '0.2rem' }}>
+                Decline candidate; retain current internal document wording
+              </span>
+            </button>
+          </div>
+        </div>
+
+        {/* Adaptation Guidance (Mandatory when ADAPT selected) */}
+        {selectedDecision === 'ADAPT' && (
+          <div style={{ marginBottom: '1.25rem', background: 'rgba(245, 158, 11, 0.08)', padding: '1rem', borderRadius: 'var(--radius-md)', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
+            {/* Phase 6G.3: Advisory Proposed Wording Box */}
+            {proposedAdaptedText && (
+              <div
+                style={{
+                  marginBottom: '1rem',
+                  padding: '0.85rem 1rem',
+                  background: 'var(--bg-surface)',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid rgba(245, 158, 11, 0.35)',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.45rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <div>
+                    <strong style={{ fontSize: '0.82rem', color: '#fbbf24', display: 'block' }}>
+                      System Proposed Wording (Advisory Proposal)
+                    </strong>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                      Advisory starting draft grounded in 6D comparison evidence. You may adopt, edit, or replace this wording.
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAdaptationInstructions(proposedAdaptedText);
+                      setDecisionValidationError(null);
+                    }}
+                    className="btn btn-secondary"
+                    style={{
+                      fontSize: '0.76rem',
+                      padding: '0.35rem 0.75rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.35rem',
+                      color: 'var(--color-warning)',
+                      borderColor: 'rgba(245, 158, 11, 0.4)',
+                    }}
+                  >
+                    <FileText size={13} /> Use Proposed Wording as Instructions
+                  </button>
+                </div>
+
+                <div
+                  style={{
+                    fontSize: '0.84rem',
+                    color: 'var(--text-primary)',
+                    lineHeight: 1.45,
+                    padding: '0.6rem 0.75rem',
+                    background: 'var(--bg-main)',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border-subtle)',
+                    whiteSpace: 'pre-wrap',
+                  }}
+                >
+                  {proposedAdaptedText}
+                </div>
+
+                {adaptationRationale && (
+                  <div style={{ marginTop: '0.45rem' }}>
+                    <span style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', fontWeight: '600' }}>
+                      Adaptation Rationale:{' '}
+                    </span>
+                    <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                      {adaptationRationale}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <label style={{ fontSize: '0.82rem', color: '#fbbf24', display: 'block', marginBottom: '0.4rem', fontWeight: '600' }}>
+              Adaptation Instructions & Specific Changes *
+            </label>
+            <textarea
+              className="input-text"
+              rows={3}
+              placeholder="Specify clinical adjustments (e.g., adjust maximum daily dose to 3000 mg for pediatric subset or align contraindications)..."
+              value={adaptationInstructions}
+              onChange={(e) => {
+                setAdaptationInstructions(e.target.value);
+                setDecisionValidationError(null);
+              }}
+              style={{ width: '100%' }}
+            />
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block', marginTop: '0.3rem' }}>
+              Reviewer instructions recorded here become the authorized directives for downstream change formulation.
+            </span>
+          </div>
+        )}
+
+        {/* Reviewer Information */}
+        <div style={{ marginBottom: '1.25rem' }}>
+          <label style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.3rem', fontWeight: '500' }}>
+            Reviewer Name & Regulatory Authority Title *
+          </label>
+          <input
+            type="text"
+            className="input-text"
+            placeholder="e.g., Dr. Jane Doe, Senior Regulatory Affairs Specialist"
+            value={reviewerName}
+            onChange={(e) => {
+              setReviewerName(e.target.value);
+              setDecisionValidationError(null);
+            }}
+            style={{ width: '100%' }}
+          />
+        </div>
+
+        {/* Reviewer Clinical Notes / Justification: Mandatory for all decisions */}
+        <div style={{ marginBottom: '1.5rem' }}>
+          <label style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.3rem', fontWeight: '500' }}>
+            Professional Rationale / Clinical Justification *
+          </label>
+          <textarea
+            className="input-text"
+            rows={4}
+            placeholder="Document clinical and regulatory justification supporting this decision based on comparison evidence..."
+            value={reviewerNotes}
+            onChange={(e) => {
+              setReviewerNotes(e.target.value);
+              setDecisionValidationError(null);
+            }}
+            style={{ width: '100%' }}
+          />
+        </div>
+
+        {/* Inline Validation Error Banner */}
+        {decisionValidationError && (
+          <div
+            style={{
+              marginBottom: '1.25rem',
+              padding: '0.75rem 1rem',
+              background: 'rgba(239, 68, 68, 0.12)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              borderRadius: 'var(--radius-sm)',
+              color: '#fca5a5',
+              fontSize: '0.84rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+            }}
+          >
+            <AlertCircle size={16} color="var(--color-danger)" style={{ flexShrink: 0 }} />
+            <span>{decisionValidationError}</span>
+          </div>
+        )}
+
+        {/* Submission Error Banner */}
+        {decisionSubmitError && (
+          <div
+            style={{
+              marginBottom: '1.25rem',
+              padding: '0.75rem 1rem',
+              background: 'rgba(239, 68, 68, 0.12)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              borderRadius: 'var(--radius-sm)',
+              color: '#fca5a5',
+              fontSize: '0.84rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+            }}
+          >
+            <AlertCircle size={16} color="var(--color-danger)" style={{ flexShrink: 0 }} />
+            <span>{decisionSubmitError}</span>
+          </div>
+        )}
+
+        {/* Recorded Confirmation Block */}
+        {recordedDecision && (
+          <div
+            style={{
+              marginBottom: '1.5rem',
+              padding: '1rem',
+              background: 'rgba(16, 185, 129, 0.1)',
+              border: '1px solid rgba(16, 185, 129, 0.35)',
+              borderRadius: 'var(--radius-md)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+              <span style={{ color: 'var(--color-success)', fontWeight: '600', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <CheckCircle2 size={18} /> Human Decision Recorded Successfully
+              </span>
+              <span className="badge" style={getStatusStyle('MATCH')}>
+                {recordedDecision.decision} AUTHORIZED
+              </span>
+            </div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+              <span>Decision ID: <code style={{ color: '#fff' }}>{recordedDecision.decision_id}</code></span>
+              <span>Timestamp: <strong>{new Date(recordedDecision.decided_at).toLocaleString()}</strong></span>
+              <span>Authorizing Reviewer: <strong>{recordedDecision.reviewer_name}</strong></span>
+              {recordedDecision.reviewer_notes && <span>Rationale: {recordedDecision.reviewer_notes}</span>}
+              {recordedDecision.adaptation_instructions && (
+                <span>Adaptation Instructions: {recordedDecision.adaptation_instructions}</span>
+              )}
+            </div>
+
+            <div style={{ marginTop: '0.75rem', display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={handleProceedToChangeReview}
+                className="btn btn-primary"
+                style={{ fontSize: '0.84rem', padding: '0.45rem 1rem' }}
+              >
+                Proceed to Change Review <ArrowRight size={13} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Decision Submission Action Bar */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+            {!selectedDecision
+              ? 'Select an action above to enable authorization'
+              : `Action selected: ${selectedDecision}`}
+          </span>
+
           <button
             type="button"
-            onClick={() => {
-              if (onProceedToDecision) {
-                onProceedToDecision({
-                  targetText,
-                  candidateText,
-                  differences,
-                  candidateItem: selectedCandidate,
-                  analysisResult,
-                  targetSection,
-                });
-              }
-            }}
+            onClick={handleSubmitDecision}
             className="btn btn-primary"
-            style={{ fontSize: '0.86rem', padding: '0.6rem 1.25rem' }}
-            disabled={!selectedCandidate}
+            disabled={!selectedDecision || submittingDecision || !targetContentId || !candidateId}
+            style={{ fontSize: '0.86rem', padding: '0.55rem 1.15rem' }}
           >
-            Proceed to Decision Panel <ArrowRight size={14} />
+            <Send size={14} /> {submittingDecision ? 'Recording Decision...' : 'Authorize & Record Decision'}
           </button>
         </div>
       </div>
