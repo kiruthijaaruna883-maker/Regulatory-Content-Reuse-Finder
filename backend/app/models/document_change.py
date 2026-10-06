@@ -29,6 +29,10 @@ class ReviewerDecision(BaseModel):
         description="Unique decision identifier",
     )
     target_content_id: str = Field(..., description="ID of internal content being reviewed")
+    document_id: Optional[str] = Field(
+        default=None,
+        description="Optional subject document identifier",
+    )
     candidate_id: Optional[str] = Field(
         default=None,
         description="ID of regulatory candidate accepted/adapted/rejected",
@@ -129,6 +133,10 @@ class ProposedChange(BaseModel):
         description="Proposal identifier",
     )
     decision_id: str = Field(..., description="Linked human reviewer decision ID")
+    document_id: Optional[str] = Field(
+        default=None,
+        description="Authoritative identifier of the source regulatory document",
+    )
     document_name: Optional[str] = Field(default=None, description="Subject regulatory document name if provided")
     document_version: Optional[str] = Field(default=None, description="Subject document version if provided")
     section: str = Field(..., description="Target regulatory section")
@@ -207,6 +215,10 @@ class ApprovedChangeReport(BaseModel):
     report_id: str = Field(
         default_factory=lambda: f"rep_{uuid4().hex[:10]}",
         description="Audit report identifier",
+    )
+    document_id: Optional[str] = Field(
+        default=None,
+        description="Authoritative identifier of the source regulatory document retained in candidate store",
     )
     document_name: Optional[str] = Field(default=None, description="Subject regulatory document name if provided")
     document_version: Optional[str] = Field(default=None, description="Target document revision if provided")

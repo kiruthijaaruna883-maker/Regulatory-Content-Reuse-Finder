@@ -20,6 +20,7 @@ from app.models.document import (
     RegulatoryDocument,
     RegulatoryProvenance,
     RegulatorySection,
+    RetainedSourceDocument,
 )
 from app.services.chunking.regulatory_chunker import RegulatoryChunker
 from app.services.compatibility.regulatory_adapter import (
@@ -30,11 +31,80 @@ from app.services.compatibility.regulatory_adapter import (
 logger = logging.getLogger("candidate_store")
 
 
+def resolve_file_format(
+    filename: Optional[str] = None,
+    mime_type: Optional[str] = None,
+    content: Optional[Union[bytes, str]] = None,
+    specified_format: Optional[str] = None,
+) -> str:
+    """Deterministically resolve file format / extension string (e.g. 'docx', 'pdf', 'txt', 'doc')."""
+    # 1. Specified format override if valid
+    if specified_format and specified_format.strip():
+        clean = specified_format.strip().lower().lstrip(".")
+        if clean:
+            return clean
+
+    # 2. Extract from filename extension
+    if filename and "." in filename:
+        ext = filename.rsplit(".", 1)[-1].strip().lower()
+        if ext:
+            if ext == "markdown":
+                return "md"
+            if ext == "htm":
+                return "html"
+            return ext
+
+    # 3. Derive from MIME type
+    if mime_type and mime_type.strip():
+        mt = mime_type.strip().lower()
+        if "pdf" in mt:
+            return "pdf"
+        if "wordprocessingml" in mt or "docx" in mt:
+            return "docx"
+        if "msword" in mt or "application/doc" in mt:
+            return "doc"
+        if "markdown" in mt:
+            return "md"
+        if "json" in mt:
+            return "json"
+        if "xml" in mt:
+            return "xml"
+        if "html" in mt:
+            return "html"
+        if "plain" in mt or "text/" in mt:
+            return "txt"
+
+    # 4. Content signature magic bytes inspection
+    if content:
+        raw_b = content.encode("utf-8") if isinstance(content, str) else bytes(content)
+        if raw_b.startswith(b"%PDF-"):
+            return "pdf"
+        if raw_b.startswith(b"PK\x03\x04") and b"word/document.xml" in raw_b[:4096]:
+            return "docx"
+        if raw_b.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"):
+            return "doc"
+        if raw_b.strip().startswith((b"{", b"[")):
+            try:
+                import json
+                json.loads(raw_b.decode("utf-8"))
+                return "json"
+            except Exception:
+                pass
+        if raw_b.strip().startswith(b"<") and b">" in raw_b[:100]:
+            if b"<html" in raw_b.lower() or b"<!doctype html" in raw_b.lower():
+                return "html"
+            return "xml"
+
+    # 5. Default fallback
+    return "txt"
+
+
 class IngestedDocumentCandidateStore:
     """Session candidate repository for ingested regulatory documents and chunks.
 
     Decoupled from ephemeral vector store query indexes to prevent ingested candidates
     from being erased when the temporary query vector index is cleared.
+    Retains immutable raw source document bytes for future server-side corrected-document generation.
     """
 
     def __init__(self, default_chunker: Optional[RegulatoryChunker] = None):
@@ -42,18 +112,65 @@ class IngestedDocumentCandidateStore:
         self._chunks: Dict[str, RegulatoryChunk] = {}
         self._content_items: Dict[str, RegulatoryContentItem] = {}
         self._doc_to_chunks: Dict[str, List[str]] = {}
+        self._source_documents: Dict[str, RetainedSourceDocument] = {}
         self._lock = threading.RLock()
         self._chunker = default_chunker or RegulatoryChunker()
+
+    def store_source_document(
+        self,
+        document_id: str,
+        source_bytes: Union[bytes, str],
+        filename: Optional[str] = None,
+        file_format: Optional[str] = None,
+        mime_type: Optional[str] = None,
+    ) -> RetainedSourceDocument:
+        """Store original uploaded document bytes immutably for a document_id."""
+        with self._lock:
+            if isinstance(source_bytes, str):
+                raw_b = source_bytes.encode("utf-8")
+            else:
+                raw_b = bytes(source_bytes)
+
+            eff_filename = filename or f"{document_id}.txt"
+            eff_format = resolve_file_format(
+                filename=eff_filename,
+                mime_type=mime_type,
+                content=raw_b,
+                specified_format=file_format,
+            )
+
+            record = RetainedSourceDocument(
+                document_id=document_id,
+                filename=eff_filename,
+                file_format=eff_format,
+                source_bytes=raw_b,
+            )
+            self._source_documents[document_id] = record
+            return record
+
+    def get_source_document(self, document_id: str) -> Optional[RetainedSourceDocument]:
+        """Retrieve the retained source document record for a document_id."""
+        with self._lock:
+            return self._source_documents.get(document_id)
+
+    def has_source_document(self, document_id: str) -> bool:
+        """Check whether source document bytes are retained for a document_id."""
+        with self._lock:
+            return document_id in self._source_documents
 
     def add_document(
         self,
         document: RegulatoryDocument,
         chunks: Optional[Sequence[RegulatoryChunk]] = None,
+        source_bytes: Optional[Union[bytes, str]] = None,
+        filename: Optional[str] = None,
+        file_format: Optional[str] = None,
+        mime_type: Optional[str] = None,
     ) -> List[RegulatoryChunk]:
         """Store an ingested RegulatoryDocument and register its RegulatoryChunks as candidates.
 
-        If chunks are not provided, checks if document.sections already contain chunks.
-        If sections have no chunks, invokes RegulatoryChunker to populate structure-aware chunks.
+        If source_bytes is provided, preserves the exact original document bytes and format
+        metadata for future server-side corrected document generation.
 
         Returns:
             List of stored RegulatoryChunk objects.
@@ -79,6 +196,16 @@ class IngestedDocumentCandidateStore:
                 self._chunks[chunk.chunk_id] = chunk
                 self._doc_to_chunks[document.document_id].append(chunk.chunk_id)
                 self._content_items[chunk.chunk_id] = chunk_to_content_item(chunk)
+
+            # 4. Retain original source bytes if provided
+            if source_bytes is not None:
+                self.store_source_document(
+                    document_id=document.document_id,
+                    source_bytes=source_bytes,
+                    filename=filename,
+                    file_format=file_format,
+                    mime_type=mime_type,
+                )
 
             logger.info(
                 "Ingested document '%s' (ID: %s) registered with %d chunk(s) in candidate store.",
@@ -116,12 +243,19 @@ class IngestedDocumentCandidateStore:
         """Ingest a multi-format document via Phase 2 UnifiedIngestionService and store it.
 
         Supports TXT, Markdown, JSON, XML, HTML, PDF, and DOCX.
+        Preserves original source bytes in candidate store for future document correction.
         """
-        from app.services.ingestion.unified_ingestion import ingest_and_chunk_document
+        from app.services.ingestion.unified_ingestion import (
+            UnifiedIngestionService,
+            ingest_and_chunk_document,
+        )
+
+        raw_data, extracted_fn = UnifiedIngestionService._extract_content(content)
+        effective_fn = filename or extracted_fn
 
         doc, chunks = ingest_and_chunk_document(
-            content=content,
-            filename=filename,
+            content=raw_data,
+            filename=effective_fn,
             mime_type=mime_type,
             document_id=document_id,
             document_name=document_name,
@@ -129,7 +263,13 @@ class IngestedDocumentCandidateStore:
             metadata=metadata,
             chunker=self._chunker,
         )
-        self.add_document(doc, chunks)
+        self.add_document(
+            doc,
+            chunks,
+            source_bytes=raw_data if isinstance(raw_data, (bytes, str)) else None,
+            filename=effective_fn,
+            mime_type=mime_type,
+        )
         return doc, chunks
 
     def get_document(self, document_id: str) -> Optional[RegulatoryDocument]:
@@ -174,6 +314,7 @@ class IngestedDocumentCandidateStore:
             if document_id not in self._documents:
                 return False
             del self._documents[document_id]
+            self._source_documents.pop(document_id, None)
             chunk_ids = self._doc_to_chunks.pop(document_id, [])
             for cid in chunk_ids:
                 self._chunks.pop(cid, None)
@@ -187,6 +328,7 @@ class IngestedDocumentCandidateStore:
             self._chunks.clear()
             self._content_items.clear()
             self._doc_to_chunks.clear()
+            self._source_documents.clear()
             logger.info("Ingested document candidate store cleared.")
 
     def count_documents(self) -> int:

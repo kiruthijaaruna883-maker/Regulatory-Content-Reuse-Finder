@@ -299,6 +299,43 @@ export const api = {
     const blob = await res.blob();
     return { blob, filename };
   },
+
+  /**
+   * Download corrected regulatory document generated from retained source bytes
+   * Returns { blob, filename } or throws Error
+   */
+  async downloadCorrectedDocument(reportId) {
+    if (!reportId) {
+      throw new Error("Report ID is required to download corrected document.");
+    }
+    const res = await fetch(`${API_BASE}/changes/report/${encodeURIComponent(reportId)}/corrected-document`, {
+      method: "POST",
+    });
+    if (!res.ok) {
+      let errorDetail = `HTTP Error ${res.status}: ${res.statusText}`;
+      try {
+        const data = await res.json();
+        if (data.detail) errorDetail = data.detail;
+        else if (data.message) errorDetail = data.message;
+      } catch {
+        // Non-JSON error response
+      }
+      throw new Error(errorDetail);
+    }
+
+    let filename = `Corrected_Document_${reportId}`;
+    const disposition = res.headers.get("Content-Disposition");
+    if (disposition) {
+      const match = disposition.match(/filename="?([^";\n]+)"?/i);
+      if (match && match[1]) {
+        filename = match[1].trim();
+      }
+    }
+
+    const blob = await res.blob();
+    return { blob, filename };
+  },
 };
 
 export const downloadApprovedChangeReportPdf = api.downloadApprovedChangeReportPdf;
+export const downloadCorrectedDocument = api.downloadCorrectedDocument;

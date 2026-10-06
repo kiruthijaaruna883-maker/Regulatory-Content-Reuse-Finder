@@ -24,6 +24,7 @@ class ChangeReportService:
         document_name: Optional[str] = None,
         document_version: Optional[str] = None,
         audit_notes: Optional[str] = None,
+        document_id: Optional[str] = None,
         **kwargs,
     ) -> ApprovedChangeReport:
         """Assemble an approved change report with full source traceability citations.
@@ -37,6 +38,7 @@ class ChangeReportService:
         doc_version = document_version or kwargs.get("document_version")
         notes = audit_notes or kwargs.get("audit_notes")
         confirmed = approval_confirmation or kwargs.get("approval_confirmation", False)
+        doc_id = document_id or kwargs.get("document_id")
 
         if not confirmed:
             raise ValueError(
@@ -48,7 +50,7 @@ class ChangeReportService:
 
         # Exclude any proposals with REJECT decision or status
         valid_approved_changes = [
-            c for c in changes
+            c for c in prop_list
             if getattr(c, "decision_type", None) != "REJECT" and getattr(c, "status", None) != "REJECTED"
         ]
 
@@ -57,6 +59,40 @@ class ChangeReportService:
 
         # Gather distinct decision IDs
         decision_ids = list(dict.fromkeys(c.decision_id for c in valid_approved_changes if c.decision_id))
+
+        # Resolve authoritative document_id from proposals or decisions if not explicitly provided
+        if not doc_id:
+            for c in valid_approved_changes:
+                if getattr(c, "document_id", None):
+                    doc_id = c.document_id
+                    break
+
+        if not doc_id and decision_ids:
+            try:
+                from app.services.candidate_store import get_candidate_store
+                cstore = kwargs.get("candidate_store") or get_candidate_store()
+                from app.persistence.sqlite_store import WorkflowSQLiteStore
+                wf_store = kwargs.get("sqlite_store") or WorkflowSQLiteStore()
+                for did in decision_ids:
+                    dec = wf_store.get_decision(did)
+                    if dec:
+                        if getattr(dec, "document_id", None):
+                            doc_id = dec.document_id
+                            break
+                        if dec.target_content_id:
+                            chunk = cstore.get_chunk(dec.target_content_id)
+                            if chunk and chunk.document_id:
+                                doc_id = chunk.document_id
+                                break
+                            item = cstore.get_content_item(dec.target_content_id)
+                            if item and item.document_id:
+                                doc_id = item.document_id
+                                break
+                            if cstore.has_source_document(dec.target_content_id) or cstore.get_document(dec.target_content_id):
+                                doc_id = dec.target_content_id
+                                break
+            except Exception:
+                pass
 
         # Gather supporting source evidence traces
         source_evidence: List[EvidenceTrace] = []
@@ -87,16 +123,17 @@ class ChangeReportService:
 
         return ApprovedChangeReport(
             report_id=f"rep_{uuid4().hex[:10]}",
-            document_name=document_name,
-            document_version=document_version,
+            document_id=doc_id,
+            document_name=doc_name,
+            document_version=doc_version,
             generated_at=now_utc,
-            author_approver=author_approver.strip(),
+            author_approver=author.strip(),
             decision_ids=decision_ids,
             changes=valid_approved_changes,
             source_evidence=source_evidence,
             validation_summary=validation_summary,
             impact_summary=impact_summary,
-            audit_notes=audit_notes or "Human authorized for regulatory submission; full provenance citations preserved.",
+            audit_notes=notes or "Human authorized for regulatory submission; full provenance citations preserved.",
             approval_timestamp=now_utc,
-            approval_confirmation=approval_confirmation,
+            approval_confirmation=confirmed,
         )

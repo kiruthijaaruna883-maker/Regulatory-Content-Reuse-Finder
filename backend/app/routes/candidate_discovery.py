@@ -188,9 +188,26 @@ async def ingest_regulatory_document(
                 if not chk.active_ingredient:
                     chk.active_ingredient = auto_ingredient
 
-    # 7. Register in candidate store
+    # 7. Register in candidate store and retain original source bytes
+    source_bytes_to_retain: Optional[bytes] = None
+    if file is not None and isinstance(content_to_ingest, (bytes, bytearray)):
+        source_bytes_to_retain = bytes(content_to_ingest)
+    elif effective_pasted_text is not None:
+        source_bytes_to_retain = effective_pasted_text.encode("utf-8")
+
+    file_format_to_retain: Optional[str] = None
+    if filename and "." in filename:
+        file_format_to_retain = Path(filename).suffix.lower().lstrip(".")
+
     store = get_candidate_store()
-    store.add_document(doc, chunks)
+    store.add_document(
+        doc,
+        chunks,
+        source_bytes=source_bytes_to_retain,
+        filename=filename,
+        file_format=file_format_to_retain,
+        mime_type=mime_type,
+    )
 
     # 8. Handle zero-chunk case
     if not chunks:

@@ -1,6 +1,7 @@
 """Document review, human decisions, and controlled change management routes."""
 
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Response, status
 from pydantic import BaseModel, Field
 from app.agents.document_change_agent import RegulatoryDocumentChangeAgent
@@ -14,8 +15,18 @@ from app.models.document_change import (
     ReviewDecisionType,
     ReviewerDecision,
 )
+from app.models.audit import AuditEventType
+from app.services.candidate_store import get_candidate_store
 from app.services.change_manager import ChangeManagerService
 from app.services.content_extraction import ContentExtractionService
+from app.services.corrected_document_generator import (
+    CorrectedDocumentGenerator,
+    CorrectedDocumentResult,
+    TargetResolutionError,
+    UnapprovedReportError,
+    UnresolvedOccurrencesError,
+    UnsupportedFormatError,
+)
 from app.services.pdf_generator import PDFReportGenerator
 
 router = APIRouter(tags=["Document Review & Change Management"])
@@ -24,6 +35,7 @@ extractor = ContentExtractionService()
 change_manager = ChangeManagerService()
 change_agent = RegulatoryDocumentChangeAgent()
 pdf_generator = PDFReportGenerator()
+corrected_doc_generator = CorrectedDocumentGenerator()
 
 
 class DocumentUploadRequest(BaseModel):
@@ -41,6 +53,10 @@ class ChangeAnalyzeRequest(BaseModel):
     document_sections: Optional[List[Dict[str, Any]]] = Field(
         default=None,
         description="Optional list of all document sections for related occurrence detection",
+    )
+    document_id: Optional[str] = Field(
+        default=None,
+        description="Authoritative source regulatory document identifier",
     )
 
 
@@ -60,6 +76,10 @@ class ApproveReportRequest(BaseModel):
     document_version: Optional[str] = Field(default=None, description="Document revision")
     audit_notes: Optional[str] = Field(default=None, description="Compliance audit notes")
     proposal_ids: Optional[List[str]] = Field(default=None, description="Specific proposal IDs to approve")
+    document_id: Optional[str] = Field(
+        default=None,
+        description="Authoritative source regulatory document identifier",
+    )
 
 
 @router.post(
@@ -70,10 +90,25 @@ class ApproveReportRequest(BaseModel):
 async def upload_document(payload: DocumentUploadRequest) -> List[RegulatoryContentItem]:
     """Parse raw regulatory document into structured section components."""
     try:
-        return extractor.extract_sections_from_text(
+        sections = extractor.extract_sections_from_text(
             text=payload.content,
             document_name=payload.document_name,
         )
+        store = get_candidate_store()
+        doc_id = f"doc_{uuid4().hex[:8]}"
+        fn = payload.document_name
+        if not fn.endswith((".txt", ".md", ".json", ".xml", ".html", ".pdf", ".docx", ".doc")):
+            fn = f"{fn}.txt"
+        store.store_source_document(
+            document_id=doc_id,
+            source_bytes=payload.content.encode("utf-8"),
+            filename=fn,
+            file_format="txt",
+        )
+        for s in sections:
+            s.document_id = doc_id
+            store._content_items[s.content_id] = s
+        return sections
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -104,6 +139,17 @@ async def record_review_decision(decision: ReviewerDecision) -> ReviewerDecision
         )
 
     try:
+        if not decision.document_id and decision.target_content_id:
+            store = get_candidate_store()
+            chunk = store.get_chunk(decision.target_content_id)
+            if chunk and chunk.document_id:
+                decision.document_id = chunk.document_id
+            else:
+                item = store.get_content_item(decision.target_content_id)
+                if item and item.document_id:
+                    decision.document_id = item.document_id
+                elif store.has_source_document(decision.target_content_id) or store.get_document(decision.target_content_id):
+                    decision.document_id = decision.target_content_id
         return change_manager.record_decision(decision)
     except Exception as exc:
         raise HTTPException(
@@ -154,6 +200,26 @@ async def analyze_change_proposal(payload: ChangeAnalyzeRequest) -> ProposedChan
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Failed to formulate proposed change from decision.",
         )
+
+    # Attach authoritative document_id to proposal
+    resolved_doc_id = payload.document_id
+    if not resolved_doc_id and decision:
+        if getattr(decision, "document_id", None):
+            resolved_doc_id = decision.document_id
+        elif decision.target_content_id:
+            store = get_candidate_store()
+            chunk = store.get_chunk(decision.target_content_id)
+            if chunk and chunk.document_id:
+                resolved_doc_id = chunk.document_id
+            else:
+                item = store.get_content_item(decision.target_content_id)
+                if item and item.document_id:
+                    resolved_doc_id = item.document_id
+                elif store.has_source_document(decision.target_content_id) or store.get_document(decision.target_content_id):
+                    resolved_doc_id = decision.target_content_id
+
+    if resolved_doc_id:
+        proposal.document_id = resolved_doc_id
 
     change_manager.save_proposal(proposal)
     return proposal
@@ -279,6 +345,37 @@ async def approve_and_generate_report(payload: ApproveReportRequest) -> Approved
             approved_changes=eligible_proposals,
             audit_notes=payload.audit_notes,
         )
+
+        # Authoritative document_id assignment
+        if payload.document_id:
+            report.document_id = payload.document_id
+        elif not report.document_id:
+            for p in eligible_proposals:
+                if getattr(p, "document_id", None):
+                    report.document_id = p.document_id
+                    break
+            if not report.document_id:
+                store = get_candidate_store()
+                for p in eligible_proposals:
+                    if p.decision_id:
+                        dec = change_manager.get_decision(p.decision_id)
+                        if dec:
+                            if getattr(dec, "document_id", None):
+                                report.document_id = dec.document_id
+                                break
+                            if dec.target_content_id:
+                                chunk = store.get_chunk(dec.target_content_id)
+                                if chunk and chunk.document_id:
+                                    report.document_id = chunk.document_id
+                                    break
+                                item = store.get_content_item(dec.target_content_id)
+                                if item and item.document_id:
+                                    report.document_id = item.document_id
+                                    break
+                                if store.has_source_document(dec.target_content_id) or store.get_document(dec.target_content_id):
+                                    report.document_id = dec.target_content_id
+                                    break
+
         # Mark proposals as approved and record audit transitions
         for p in eligible_proposals:
             p.status = "APPROVED"
@@ -352,6 +449,151 @@ async def export_approved_report_pdf(report_id: str) -> Response:
         media_type="application/pdf",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )
+
+
+@router.post(
+    "/changes/report/{report_id}/corrected-document",
+    summary="Generate and download a corrected regulatory document from retained original source bytes",
+    response_class=Response,
+    responses={
+        200: {
+            "content": {
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {},
+                "text/plain": {},
+            },
+            "description": "Deterministic corrected regulatory document byte stream attachment.",
+        },
+        400: {"description": "Invalid report configuration, missing document_id, or unsupported format."},
+        404: {"description": "Approved change report or source document not found."},
+        409: {"description": "Workflow conflict: unapproved report, pending occurrences, or ambiguous target."},
+    },
+)
+async def generate_corrected_document(report_id: str) -> Response:
+    """Generate and return a corrected regulatory document from retained source bytes.
+
+    Strictly enforces:
+    1. Report exists and has explicit human approval confirmation.
+    2. Valid human regulatory approver identity is present.
+    3. All related occurrences are resolved (no PENDING occurrences).
+    4. Only CONFIRMED occurrences are applied; EXCLUDED occurrences remain unchanged.
+    5. Resolves original source document via report.document_id.
+    6. Rejects input-only formats (PDF, legacy .doc) cleanly.
+    7. Appends a tamper-evident CORRECTED_DOCUMENT_GENERATED audit event with SHA-256 hash.
+    8. Returns the corrected document as a downloadable file attachment.
+    """
+    report = change_manager.get_report(report_id)
+    if report is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Approved change report '{report_id}' not found.",
+        )
+
+    # 1. Approval guard
+    if not report.approval_confirmation:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Document correction rejected: Report '{report_id}' has not received explicit "
+                "human regulatory approval confirmation (approval_confirmation=true)."
+            ),
+        )
+
+    if not report.author_approver or not report.author_approver.strip():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Document correction rejected: Report '{report_id}' lacks a valid authorized approver identity.",
+        )
+
+    # 2. Occurrence guard: reject any unresolved PENDING occurrences
+    for prop in (report.changes or []):
+        for occ in (prop.related_occurrences or []):
+            if occ.status == "PENDING":
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"Document correction rejected: Unresolved PENDING occurrence '{occ.occurrence_id}' "
+                        f"detected in proposal '{prop.change_id}'. All occurrences must be explicitly reviewed "
+                        "(CONFIRMED or EXCLUDED) before corrected document generation."
+                    ),
+                )
+
+    # 3. Source document resolution
+    if not report.document_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Approved change report '{report_id}' is missing an associated source document_id.",
+        )
+
+    store = get_candidate_store()
+    source_doc = store.get_source_document(report.document_id)
+    if source_doc is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Retained source document for document_id '{report.document_id}' not found in candidate store.",
+        )
+
+    # 4. Input-only format guards (PDF / legacy DOC)
+    eff_fmt = (source_doc.file_format or "").strip().lower().lstrip(".")
+    if not eff_fmt and "." in source_doc.filename:
+        from pathlib import Path
+        eff_fmt = Path(source_doc.filename).suffix.strip().lower().lstrip(".")
+
+    if eff_fmt == "pdf":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="PDF format is input-only; in-place PDF document correction is not supported.",
+        )
+    if eff_fmt == "doc":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Legacy DOC (.doc) format is input-only; direct binary .doc modification is not supported.",
+        )
+
+    # 5. Call generator
+    try:
+        result: CorrectedDocumentResult = corrected_doc_generator.generate_corrected_document(report=report)
+    except UnapprovedReportError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    except UnresolvedOccurrencesError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    except UnsupportedFormatError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except TargetResolutionError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Corrected document generation failed: {exc}",
+        )
+
+    # 6. Record audit event (idempotent: avoid duplicate audit entries for identical artifact)
+    existing_audits = [
+        e for e in change_manager.list_audit_events_for_report(report)
+        if e.event_type == AuditEventType.CORRECTED_DOCUMENT_GENERATED.value
+        and (e.details or {}).get("sha256_hash") == result.sha256_hash
+    ]
+    if not existing_audits:
+        change_manager.record_corrected_document_generated(report=report, result=result)
+
+    # 7. Media type determination
+    media_type = "application/octet-stream"
+    out_fmt = (result.output_format or "").strip().lower().lstrip(".")
+    if out_fmt == "docx":
+        media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    elif out_fmt in ("txt", "text"):
+        media_type = "text/plain; charset=utf-8"
+    elif out_fmt == "md":
+        media_type = "text/markdown; charset=utf-8"
+
+    return Response(
+        content=result.corrected_bytes,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{result.output_filename}"',
         },
     )
 

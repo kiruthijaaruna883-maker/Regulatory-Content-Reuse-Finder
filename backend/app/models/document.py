@@ -394,3 +394,27 @@ class RegulatoryDocument(BaseModel):
 # Rebuild recursive models for Pydantic v2
 RegulatorySection.model_rebuild()
 RegulatoryDocument.model_rebuild()
+
+
+class RetainedSourceDocument(BaseModel):
+    """Immutable record of the original uploaded source document bytes and format.
+
+    Preserves verbatim source document bytes in session storage for future server-side
+    corrected-document generation without mutating the original source file.
+    """
+
+    document_id: str = Field(..., description="Unique document identifier")
+    filename: str = Field(..., description="Original filename of the uploaded document")
+    file_format: str = Field(
+        ...,
+        description="Standardized file format extension, e.g. 'docx', 'pdf', 'txt', 'doc'",
+    )
+    source_bytes: bytes = Field(
+        ...,
+        description="Verbatim raw bytes of the original uploaded document",
+    )
+
+    @property
+    def size_bytes(self) -> int:
+        """Return the size in bytes of the original source document."""
+        return len(self.source_bytes)

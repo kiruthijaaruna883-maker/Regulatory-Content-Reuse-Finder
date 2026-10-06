@@ -200,25 +200,32 @@ class ChangeManagerService:
             if hasattr(decision.decision, "value")
             else str(decision.decision)
         )
+        details = {
+            "target_content_id": decision.target_content_id,
+            "candidate_id": decision.candidate_id,
+            "decision": decision_val,
+            "notes": decision.reviewer_notes,
+            "adaptation_instructions": decision.adaptation_instructions,
+        }
+        if getattr(decision, "document_id", None):
+            details["document_id"] = decision.document_id
+        new_state = {
+            "decision_id": decision.decision_id,
+            "decision": decision_val,
+            "target_content_id": decision.target_content_id,
+            "candidate_id": decision.candidate_id,
+        }
+        if getattr(decision, "document_id", None):
+            new_state["document_id"] = decision.document_id
+
         self.store.append_audit_event(
             event_type=AuditEventType.REVIEWER_DECISION_CREATED.value,
             decision_id=decision.decision_id,
             reviewer_name=decision.reviewer_name,
             new_status=decision_val,
-            details={
-                "target_content_id": decision.target_content_id,
-                "candidate_id": decision.candidate_id,
-                "decision": decision_val,
-                "notes": decision.reviewer_notes,
-                "adaptation_instructions": decision.adaptation_instructions,
-            },
+            details=details,
             previous_state=None,
-            new_state={
-                "decision_id": decision.decision_id,
-                "decision": decision_val,
-                "target_content_id": decision.target_content_id,
-                "candidate_id": decision.candidate_id,
-            },
+            new_state=new_state,
         )
         return saved
 
@@ -239,6 +246,7 @@ class ChangeManagerService:
         rationale: str,
         document_name: Optional[str] = None,
         document_version: Optional[str] = None,
+        document_id: Optional[str] = None,
     ) -> ProposedChange:
         """Formulate a controlled change proposal from a REUSE or ADAPT decision.
 
@@ -251,8 +259,29 @@ class ChangeManagerService:
                 "Original document content is strictly preserved."
             )
 
+        resolved_doc_id = document_id
+        if not resolved_doc_id and decision:
+            if getattr(decision, "document_id", None):
+                resolved_doc_id = decision.document_id
+            elif decision.target_content_id:
+                try:
+                    from app.services.candidate_store import get_candidate_store
+                    cstore = get_candidate_store()
+                    chunk = cstore.get_chunk(decision.target_content_id)
+                    if chunk and chunk.document_id:
+                        resolved_doc_id = chunk.document_id
+                    else:
+                        item = cstore.get_content_item(decision.target_content_id)
+                        if item and item.document_id:
+                            resolved_doc_id = item.document_id
+                        elif cstore.has_source_document(decision.target_content_id) or cstore.get_document(decision.target_content_id):
+                            resolved_doc_id = decision.target_content_id
+                except Exception:
+                    pass
+
         proposal = ProposedChange(
             decision_id=decision.decision_id,
+            document_id=resolved_doc_id,
             document_name=document_name,
             document_version=document_version,
             section=section,
@@ -279,25 +308,32 @@ class ChangeManagerService:
                 if hasattr(saved.decision_type, "value")
                 else str(saved.decision_type)
             )
+            details = {
+                "section": saved.section,
+                "document_name": saved.document_name,
+                "document_version": saved.document_version,
+                "decision_type": decision_type_val,
+                "rationale": saved.rationale,
+                "related_occurrences_count": len(saved.related_occurrences),
+            }
+            if saved.document_id:
+                details["document_id"] = saved.document_id
+            new_state = {
+                "change_id": saved.change_id,
+                "status": saved.status,
+                "section": saved.section,
+            }
+            if saved.document_id:
+                new_state["document_id"] = saved.document_id
+
             self.store.append_audit_event(
                 event_type=AuditEventType.CHANGE_PROPOSAL_CREATED.value,
                 change_id=saved.change_id,
                 decision_id=saved.decision_id,
                 new_status=saved.status,
-                details={
-                    "section": saved.section,
-                    "document_name": saved.document_name,
-                    "document_version": saved.document_version,
-                    "decision_type": decision_type_val,
-                    "rationale": saved.rationale,
-                    "related_occurrences_count": len(saved.related_occurrences),
-                },
+                details=details,
                 previous_state=None,
-                new_state={
-                    "change_id": saved.change_id,
-                    "status": saved.status,
-                    "section": saved.section,
-                },
+                new_state=new_state,
             )
         return saved
 
@@ -470,27 +506,71 @@ class ChangeManagerService:
     def record_approved_report(self, report: ApprovedChangeReport) -> ApprovedChangeReport:
         """Persist authorized Approved Change Report and emit audit event."""
         saved = self.store.save_report(report)
+        details = {
+            "document_name": report.document_name,
+            "document_version": report.document_version,
+            "author_approver": report.author_approver,
+            "decision_ids": report.decision_ids,
+            "changes_count": len(report.changes),
+            "audit_notes": report.audit_notes,
+            "approval_confirmation": report.approval_confirmation,
+        }
+        if report.document_id:
+            details["document_id"] = report.document_id
+
+        new_state = {
+            "report_id": report.report_id,
+            "author_approver": report.author_approver,
+            "changes_count": len(report.changes),
+        }
+        if report.document_id:
+            new_state["document_id"] = report.document_id
+
         self.store.append_audit_event(
             event_type=AuditEventType.APPROVED_REPORT_CREATED.value,
             report_id=report.report_id,
             reviewer_name=report.author_approver,
-            details={
-                "document_name": report.document_name,
-                "document_version": report.document_version,
-                "author_approver": report.author_approver,
-                "decision_ids": report.decision_ids,
-                "changes_count": len(report.changes),
-                "audit_notes": report.audit_notes,
-                "approval_confirmation": report.approval_confirmation,
-            },
+            details=details,
             previous_state=None,
-            new_state={
-                "report_id": report.report_id,
-                "author_approver": report.author_approver,
-                "changes_count": len(report.changes),
-            },
+            new_state=new_state,
         )
         return saved
+
+    def record_corrected_document_generated(
+        self,
+        report: ApprovedChangeReport,
+        result: Any,
+    ) -> AuditEvent:
+        """Record an audit trail event for successful corrected regulatory document generation."""
+        change_ids = [c.change_id for c in report.changes if getattr(c, "change_id", None)]
+        details = {
+            "report_id": report.report_id,
+            "document_id": result.document_id,
+            "change_ids": change_ids,
+            "original_filename": result.original_filename,
+            "output_filename": result.output_filename,
+            "input_format": result.input_format,
+            "output_format": result.output_format,
+            "size_bytes": result.size_bytes,
+            "sha256_hash": result.sha256_hash,
+            "author_approver": report.author_approver,
+        }
+        new_state = {
+            "report_id": report.report_id,
+            "document_id": result.document_id,
+            "output_filename": result.output_filename,
+            "sha256_hash": result.sha256_hash,
+        }
+        primary_change_id = change_ids[0] if change_ids else None
+        return self.store.append_audit_event(
+            event_type=AuditEventType.CORRECTED_DOCUMENT_GENERATED.value,
+            change_id=primary_change_id,
+            report_id=report.report_id,
+            reviewer_name=report.author_approver,
+            details=details,
+            previous_state=None,
+            new_state=new_state,
+        )
 
     def get_latest_report(self) -> Optional[ApprovedChangeReport]:
         """Retrieve most recently generated report."""

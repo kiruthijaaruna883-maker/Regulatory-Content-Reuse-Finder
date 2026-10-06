@@ -183,6 +183,7 @@ export default function ApprovedChangeReport({ approvedReport }) {
       CHANGE_APPROVED: 'Change Approved',
       CHANGE_REJECTED: 'Change Rejected',
       APPROVED_REPORT_CREATED: 'Approved Report Created',
+      CORRECTED_DOCUMENT_GENERATED: 'Corrected Document Generated',
     };
     return map[type] || type;
   }
@@ -197,6 +198,7 @@ export default function ApprovedChangeReport({ approvedReport }) {
       CHANGE_APPROVED: 'Change approved',
       CHANGE_REJECTED: 'Change rejected',
       APPROVED_REPORT_CREATED: 'Approved report created',
+      CORRECTED_DOCUMENT_GENERATED: 'Corrected document generated',
     };
     return map[type] || formatEventType(type);
   }
@@ -227,6 +229,10 @@ export default function ApprovedChangeReport({ approvedReport }) {
         return `Proposal rejected by ${evt.reviewer_name || 'Regulatory Approver'}`;
       case 'APPROVED_REPORT_CREATED':
         return 'Approved change report compiled and sealed with complete source traceability';
+      case 'CORRECTED_DOCUMENT_GENERATED':
+        return details.output_filename
+          ? `Corrected document "${details.output_filename}" generated from retained original source bytes${details.sha256_hash ? ` (SHA-256: ${truncateHash(details.sha256_hash, 8)})` : ''}`
+          : 'Corrected document generated from retained original source bytes';
       default:
         return evt.new_status ? `Status transition: ${evt.new_status}` : 'Workflow transition recorded';
     }
@@ -305,6 +311,37 @@ export default function ApprovedChangeReport({ approvedReport }) {
     }
   }
 
+  // Corrected Document Download state & action
+  const [correctedDocLoading, setCorrectedDocLoading] = useState(false);
+  const [correctedDocError, setCorrectedDocError] = useState(null);
+
+  async function handleDownloadCorrectedDoc() {
+    if (!report?.report_id || !report?.approval_confirmation) {
+      return;
+    }
+
+    setCorrectedDocLoading(true);
+    setCorrectedDocError(null);
+
+    try {
+      const { blob, filename } = await api.downloadCorrectedDocument(report.report_id);
+      const url = window.URL.createObjectURL(blob);
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.href = url;
+      downloadAnchor.download = filename || `Corrected_Document_${report.report_id}`;
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+      window.URL.revokeObjectURL(url);
+      loadAuditTrail().catch(() => {});
+    } catch (err) {
+      console.error('Failed to download corrected document:', err);
+      setCorrectedDocError(err.message || 'Failed to download corrected document.');
+    } finally {
+      setCorrectedDocLoading(false);
+    }
+  }
+
   // Format ISO timestamp nicely if valid
   function formatTimestamp(ts) {
     if (!ts) return 'Not available in returned report';
@@ -378,7 +415,29 @@ export default function ApprovedChangeReport({ approvedReport }) {
               </>
             ) : (
               <>
-                <Download size={14} /> Download PDF
+                <Download size={14} /> Download Approved PDF
+              </>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={handleDownloadCorrectedDoc}
+            className="btn btn-secondary"
+            style={{ fontSize: '0.82rem' }}
+            disabled={!report || !report.report_id || !report.approval_confirmation || correctedDocLoading}
+            title={
+              !report || !report.report_id || !report.approval_confirmation
+                ? 'Corrected document download is only available for an approved change report'
+                : 'Download corrected source document with approved changes applied'
+            }
+          >
+            {correctedDocLoading ? (
+              <>
+                <RefreshCw size={13} className="animate-spin" /> Generating Document...
+              </>
+            ) : (
+              <>
+                <Download size={14} /> Download Corrected Document
               </>
             )}
           </button>
@@ -473,6 +532,28 @@ export default function ApprovedChangeReport({ approvedReport }) {
         >
           <AlertCircle size={16} color="var(--color-danger)" />
           <span>{pdfError}</span>
+        </div>
+      )}
+
+      {/* Corrected Document Download Error Banner */}
+      {correctedDocError && (
+        <div
+          style={{
+            maxWidth: '920px',
+            margin: '0 auto 1rem auto',
+            padding: '0.75rem 1rem',
+            background: 'rgba(239, 68, 68, 0.12)',
+            border: '1px solid rgba(239, 68, 68, 0.3)',
+            borderRadius: 'var(--radius-sm)',
+            color: '#fca5a5',
+            fontSize: '0.8rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+          }}
+        >
+          <AlertCircle size={16} color="var(--color-danger)" />
+          <span>{correctedDocError}</span>
         </div>
       )}
 
