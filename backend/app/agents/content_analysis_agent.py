@@ -182,13 +182,16 @@ class RegulatoryContentAnalysisAgent:
             if false_match_warning:
                 false_matches_count += 1
 
-            rec_decision, rec_reason, rec_conf = self.comparator.evaluate_recommendation(
+            rec_res = self.comparator.evaluate_recommendation(
                 match=match_result,
                 differences=diffs,
                 false_match_warning=false_match_warning,
                 similarity_score=scores.get(cand.content_id, 0.75),
                 target_info=curr_key_info,
                 candidate_info=cand.key_information,
+                target_text=sanitized_target,
+                candidate_text=cand.text,
+                target_section=section_name or cand.section,
             )
 
             comp_cand = ComparisonCandidate(
@@ -202,9 +205,11 @@ class RegulatoryContentAnalysisAgent:
                 evidence=[evidence],
                 false_match_warning=false_match_warning,
                 requires_human_review=True,
-                recommended_decision=rec_decision,
-                recommendation_reason=rec_reason,
-                recommendation_confidence=rec_conf,
+                recommended_decision=rec_res.decision,
+                recommendation_reason=rec_res.reason,
+                recommendation_confidence=rec_res.confidence,
+                proposed_adapted_text=rec_res.proposed_adapted_text,
+                adaptation_rationale=rec_res.adaptation_rationale,
             )
             comparison_candidates.append(comp_cand)
 

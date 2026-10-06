@@ -67,7 +67,7 @@ export default function DecisionPanel({ comparisonData, onDecisionRecorded }) {
       ? 'Critical regulatory discrepancy detected between target and candidate reference.'
       : null);
 
-  // Advisory Recommendation Signals (Phase 6G.2)
+  // Advisory Recommendation Signals (Phase 6G.2 & 6G.3)
   const recommendedDecision =
     primaryCandidate?.recommended_decision ||
     candidateItem?.recommended_decision ||
@@ -79,6 +79,14 @@ export default function DecisionPanel({ comparisonData, onDecisionRecorded }) {
   const recommendationConfidence =
     primaryCandidate?.recommendation_confidence ??
     candidateItem?.recommendation_confidence ??
+    null;
+  const proposedAdaptedText =
+    primaryCandidate?.proposed_adapted_text ||
+    candidateItem?.proposed_adapted_text ||
+    null;
+  const adaptationRationale =
+    primaryCandidate?.adaptation_rationale ||
+    candidateItem?.adaptation_rationale ||
     null;
 
   const primaryEvidence = primaryCandidate?.evidence?.[0] || null;
@@ -710,6 +718,75 @@ export default function DecisionPanel({ comparisonData, onDecisionRecorded }) {
         {/* Adaptation Guidance (Mandatory when ADAPT selected) */}
         {selectedDecision === 'ADAPT' && (
           <div style={{ marginBottom: '1.25rem', background: 'rgba(245, 158, 11, 0.08)', padding: '1rem', borderRadius: 'var(--radius-md)', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
+            {/* Phase 6G.3: Advisory Proposed Wording Box */}
+            {proposedAdaptedText && (
+              <div
+                style={{
+                  marginBottom: '1rem',
+                  padding: '0.85rem 1rem',
+                  background: 'var(--bg-surface)',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid rgba(245, 158, 11, 0.35)',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.45rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <div>
+                    <strong style={{ fontSize: '0.82rem', color: '#fbbf24', display: 'block' }}>
+                      System Proposed Wording (Advisory Proposal)
+                    </strong>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                      Advisory starting draft grounded in 6D comparison evidence. You may adopt, edit, or replace this wording.
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAdaptationInstructions(proposedAdaptedText);
+                      setValidationError(null);
+                    }}
+                    className="btn btn-secondary"
+                    style={{
+                      fontSize: '0.76rem',
+                      padding: '0.35rem 0.75rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.35rem',
+                      color: 'var(--color-warning)',
+                      borderColor: 'rgba(245, 158, 11, 0.4)',
+                    }}
+                  >
+                    <FileText size={13} /> Use Proposed Wording as Instructions
+                  </button>
+                </div>
+
+                <div
+                  style={{
+                    fontSize: '0.84rem',
+                    color: 'var(--text-primary)',
+                    lineHeight: 1.45,
+                    padding: '0.6rem 0.75rem',
+                    background: 'var(--bg-main)',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border-subtle)',
+                    whiteSpace: 'pre-wrap',
+                  }}
+                >
+                  {proposedAdaptedText}
+                </div>
+
+                {adaptationRationale && (
+                  <div style={{ marginTop: '0.45rem' }}>
+                    <span style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', fontWeight: '600' }}>
+                      Adaptation Rationale:{' '}
+                    </span>
+                    <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                      {adaptationRationale}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
             <label style={{ fontSize: '0.82rem', color: '#fbbf24', display: 'block', marginBottom: '0.4rem', fontWeight: '600' }}>
               Adaptation Instructions & Specific Changes *
             </label>
@@ -724,6 +801,9 @@ export default function DecisionPanel({ comparisonData, onDecisionRecorded }) {
               }}
               style={{ width: '100%' }}
             />
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block', marginTop: '0.3rem' }}>
+              Reviewer instructions recorded here become the authorized directives for downstream change formulation.
+            </span>
           </div>
         )}
 

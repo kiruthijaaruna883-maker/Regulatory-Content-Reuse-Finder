@@ -277,6 +277,14 @@ class ComparisonCandidate(BaseModel):
         le=1.0,
         description="Advisory confidence score between 0.0 and 1.0 grounded in comparison evidence",
     )
+    proposed_adapted_text: Optional[str] = Field(
+        default=None,
+        description="System advisory proposed adapted regulatory wording (proposal only; human review mandatory)",
+    )
+    adaptation_rationale: Optional[str] = Field(
+        default=None,
+        description="Evidence-based clinical rationale explaining what was adapted and what was preserved",
+    )
 
 
 class ContentComparisonResult(BaseModel):

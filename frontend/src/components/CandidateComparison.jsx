@@ -1025,6 +1025,53 @@ export default function CandidateComparison({
                 </p>
               )}
 
+              {/* Phase 6G.3: Proposed Adapted Wording & Rationale */}
+              {primaryCandidate.recommended_decision === 'ADAPT' && primaryCandidate.proposed_adapted_text && (
+                <div
+                  style={{
+                    margin: '0.75rem 0',
+                    padding: '0.85rem 1rem',
+                    background: 'var(--bg-surface)',
+                    border: '1px solid rgba(180, 83, 9, 0.3)',
+                    borderRadius: 'var(--radius-sm)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.4rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+                    <strong style={{ fontSize: '0.82rem', color: '#fbbf24', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Proposed Adapted Wording (Advisory Proposal)
+                    </strong>
+                    <span className="badge" style={{ fontSize: '0.68rem', background: 'rgba(180, 83, 9, 0.15)', color: 'var(--color-warning)' }}>
+                      Proposal Only — Subject to Human Review
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      fontSize: '0.86rem',
+                      color: 'var(--text-primary)',
+                      lineHeight: 1.5,
+                      padding: '0.6rem 0.75rem',
+                      background: 'var(--bg-main)',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid var(--border-subtle)',
+                      fontFamily: 'inherit',
+                      whiteSpace: 'pre-wrap',
+                    }}
+                  >
+                    {primaryCandidate.proposed_adapted_text}
+                  </div>
+                  {primaryCandidate.adaptation_rationale && (
+                    <div style={{ marginTop: '0.5rem' }}>
+                      <strong style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.2rem' }}>
+                        Adaptation Rationale:
+                      </strong>
+                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0, lineHeight: 1.45 }}>
+                        {primaryCandidate.adaptation_rationale}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                 <ShieldAlert size={12} />
                 <span>
