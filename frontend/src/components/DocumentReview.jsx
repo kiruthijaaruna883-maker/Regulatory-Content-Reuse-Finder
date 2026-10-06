@@ -5,9 +5,11 @@ import {
   ArrowRight,
   CheckCircle2,
   AlertTriangle,
-  ShieldCheck,
   Layers,
-  Database
+  ChevronDown,
+  ChevronRight,
+  File,
+  X
 } from 'lucide-react';
 import { api } from '../services/api';
 
@@ -28,25 +30,30 @@ const ALLOWED_EXTENSIONS = [
 ];
 
 export default function DocumentReview({ onSelectSectionForReview }) {
-  const [inputMode, setInputMode] = useState('paste'); // 'paste' | 'file'
+  // Upload is the primary / default mode
+  const [inputMode, setInputMode] = useState('file'); // 'file' | 'paste'
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
+
+  // Document metadata
   const [docName, setDocName] = useState('Draft Prescribing Information v1.2');
   const [docContent, setDocContent] = useState(SAMPLE_INTERNAL_DRAFT);
-  const [selectedFile, setSelectedFile] = useState(null);
   const [jurisdiction, setJurisdiction] = useState('US_FDA');
   const [docType, setDocType] = useState('REGULATORY_LABEL');
   const [productName, setProductName] = useState('');
   const [activeIngredient, setActiveIngredient] = useState('');
 
+  // Processing & Ingestion states
   const [extractedSections, setExtractedSections] = useState([]);
   const [ingesting, setIngesting] = useState(false);
   const [ingestResult, setIngestResult] = useState(null);
   const [error, setError] = useState(null);
   const [activeSectionId, setActiveSectionId] = useState(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   const fileInputRef = useRef(null);
 
-  function handleFileChange(e) {
-    const file = e.target.files?.[0];
+  function processFile(file) {
     if (!file) return;
 
     const ext = '.' + file.name.split('.').pop().toLowerCase();
@@ -62,6 +69,36 @@ export default function DocumentReview({ onSelectSectionForReview }) {
     if (!docName || docName === 'Draft Prescribing Information v1.2') {
       const cleanTitle = file.name.replace(/\.[^/.]+$/, '').replace(/[_.-]+/g, ' ');
       setDocName(cleanTitle.charAt(0).toUpperCase() + cleanTitle.slice(1));
+    }
+  }
+
+  function handleFileChange(e) {
+    const file = e.target.files?.[0];
+    processFile(file);
+  }
+
+  function handleDragOver(e) {
+    e.preventDefault();
+    setIsDragging(true);
+  }
+
+  function handleDragLeave(e) {
+    e.preventDefault();
+    setIsDragging(false);
+  }
+
+  function handleDrop(e) {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    processFile(file);
+  }
+
+  function handleRemoveFile(e) {
+    e.stopPropagation();
+    setSelectedFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   }
 
@@ -105,7 +142,7 @@ export default function DocumentReview({ onSelectSectionForReview }) {
       }
       formData.append('version', '1.0');
 
-      // Call API service without manual Content-Type header
+      // Call API service
       const result = await api.ingestDocument(formData);
       setIngestResult(result);
 
@@ -138,335 +175,506 @@ export default function DocumentReview({ onSelectSectionForReview }) {
     }
   }
 
+  function handleProceedToReview(targetSection = null) {
+    if (!onSelectSectionForReview || !ingestResult) return;
+
+    if (targetSection) {
+      onSelectSectionForReview(targetSection);
+      return;
+    }
+
+    if (extractedSections.length > 0) {
+      const selected = extractedSections.find(s => s.content_id === activeSectionId) || extractedSections[0];
+      onSelectSectionForReview(selected);
+      return;
+    }
+
+    // Default payload for file upload ingestion
+    onSelectSectionForReview({
+      content_id: `${ingestResult.document_id}_item`,
+      document_id: ingestResult.document_id,
+      document_name: ingestResult.document_name,
+      section: 'Ingested Document Draft',
+      text: selectedFile ? `File: ${selectedFile.name} (Registered ${ingestResult.chunks_count} content sections in store)` : docContent,
+      jurisdiction: ingestResult.jurisdiction,
+      document_type: ingestResult.document_type,
+    });
+  }
+
   return (
     <div>
-      <div className="screen-header">
+      {/* Screen Header */}
+      <div className="screen-header" style={{ marginBottom: '1.5rem' }}>
         <div>
-          <h2>Document Review Workspace</h2>
-          <p>Ingest internal regulatory drafts and register candidate content for reuse discovery</p>
+          <h2>Document Review</h2>
+          <p>
+            Upload the regulatory document you want to review for reusable content across approved health authority labels.
+          </p>
         </div>
       </div>
 
+      {/* Global Error Banner */}
+      {error && (
+        <div style={{
+          marginBottom: '1.25rem',
+          padding: '0.85rem 1rem',
+          background: 'rgba(239, 68, 68, 0.12)',
+          border: '1px solid rgba(239, 68, 68, 0.3)',
+          borderRadius: 'var(--radius-sm)',
+          color: '#b91c1c',
+          fontSize: '0.84rem',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.6rem'
+        }}>
+          <AlertTriangle size={18} color="var(--color-danger)" style={{ flexShrink: 0 }} />
+          <span>{error}</span>
+        </div>
+      )}
+
       <div className="grid-2">
-        {/* Document Ingestion & Metadata Column */}
-        <div className="card">
-          <div className="card-header">
-            <span className="card-title">
-              <FileText size={16} /> Regulatory Document Ingestion
-            </span>
-            <button
-              onClick={handleIngestDocument}
-              className="btn btn-primary"
-              style={{ fontSize: '0.82rem', padding: '0.4rem 0.9rem' }}
-              disabled={ingesting}
-            >
-              <UploadCloud size={14} /> {ingesting ? 'Ingesting...' : 'Ingest Document'}
-            </button>
-          </div>
-
-          {/* Mode Switcher Tabs */}
-          <div className="nav-tabs" style={{ marginBottom: '1rem', width: 'fit-content' }}>
-            <button
-              type="button"
-              className={`nav-tab ${inputMode === 'paste' ? 'active' : ''}`}
-              onClick={() => { setInputMode('paste'); setError(null); }}
-            >
-              <FileText size={14} /> Paste Text
-            </button>
-            <button
-              type="button"
-              className={`nav-tab ${inputMode === 'file' ? 'active' : ''}`}
-              onClick={() => { setInputMode('file'); setError(null); }}
-            >
-              <UploadCloud size={14} /> Upload File
-            </button>
-          </div>
-
-          {/* Error Banner */}
-          {error && (
-            <div style={{
-              marginBottom: '1rem',
-              padding: '0.75rem 1rem',
-              background: 'rgba(239, 68, 68, 0.12)',
-              border: '1px solid rgba(239, 68, 68, 0.3)',
-              borderRadius: 'var(--radius-sm)',
-              color: '#fca5a5',
-              fontSize: '0.82rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem'
-            }}>
-              <AlertTriangle size={16} color="var(--color-danger)" style={{ flexShrink: 0 }} />
-              <span>{error}</span>
+        {/* Left Column: Primary Upload & Metadata */}
+        <div>
+          {/* Card: Document Upload */}
+          <div className="card" style={{ marginBottom: '1.5rem' }}>
+            <div className="card-header" style={{ paddingBottom: '0.6rem' }}>
+              <span className="card-title">
+                <UploadCloud size={16} color="var(--color-brand)" /> Upload Document
+              </span>
+              <div className="nav-tabs" style={{ padding: '0.15rem' }}>
+                <button
+                  type="button"
+                  className={`nav-tab ${inputMode === 'file' ? 'active' : ''}`}
+                  onClick={() => { setInputMode('file'); setError(null); }}
+                  style={{ fontSize: '0.78rem', padding: '0.3rem 0.65rem' }}
+                >
+                  <UploadCloud size={13} /> Upload File
+                </button>
+                <button
+                  type="button"
+                  className={`nav-tab ${inputMode === 'paste' ? 'active' : ''}`}
+                  onClick={() => { setInputMode('paste'); setError(null); }}
+                  style={{ fontSize: '0.78rem', padding: '0.3rem 0.65rem' }}
+                >
+                  <FileText size={13} /> Paste Text
+                </button>
+              </div>
             </div>
-          )}
 
-          {/* File Upload Mode */}
-          {inputMode === 'file' ? (
-            <div style={{ marginBottom: '1rem' }}>
-              <label style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.3rem' }}>
-                Regulatory Document File (.pdf, .doc, .docx, .txt)
-              </label>
-              <div
-                style={{
-                  border: '2px dashed var(--border-subtle)',
-                  borderRadius: 'var(--radius-md)',
-                  padding: '1.75rem 1rem',
-                  textAlign: 'center',
-                  background: 'var(--bg-main)',
-                  cursor: 'pointer',
-                  transition: 'border-color 0.15s ease'
-                }}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <UploadCloud size={30} color="var(--color-brand)" style={{ margin: '0 auto 0.5rem' }} />
-                <div style={{ fontSize: '0.88rem', color: '#fff', fontWeight: '500' }}>
-                  {selectedFile ? selectedFile.name : 'Click to select regulatory document file'}
-                </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
-                  Supported formats: PDF, DOC, DOCX, TXT
-                </div>
-                {selectedFile && (
-                  <div style={{ marginTop: '0.6rem', fontSize: '0.78rem', color: 'var(--color-success)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}>
-                    <CheckCircle2 size={13} /> {(selectedFile.size / 1024).toFixed(1)} KB ready for ingestion
+            {/* Mode 1: Primary File Upload Area */}
+            {inputMode === 'file' ? (
+              <div>
+                <div
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  onClick={() => fileInputRef.current?.click()}
+                  style={{
+                    border: isDragging ? '2px dashed var(--color-brand)' : '2px dashed var(--border-subtle)',
+                    borderRadius: 'var(--radius-md)',
+                    padding: '2rem 1.5rem',
+                    textAlign: 'center',
+                    background: isDragging ? 'rgba(13, 148, 136, 0.05)' : 'var(--bg-surface-elevated)',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <UploadCloud
+                    size={38}
+                    color="var(--color-brand)"
+                    style={{ margin: '0 auto 0.75rem', display: 'block' }}
+                  />
+
+                  <div style={{ fontSize: '0.98rem', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '0.3rem' }}>
+                    {selectedFile ? 'Document Selected' : 'Drop a document here'}
                   </div>
-                )}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".pdf,.doc,.docx,.txt"
-                  style={{ display: 'none' }}
-                  onChange={handleFileChange}
+
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0 0 1rem 0' }}>
+                    or click to choose a document from your computer
+                  </p>
+
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ fontSize: '0.82rem', padding: '0.45rem 1rem' }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      fileInputRef.current?.click();
+                    }}
+                  >
+                    <File size={14} /> Choose Document
+                  </button>
+
+                  <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '1rem', letterSpacing: '0.02em' }}>
+                    PDF • DOC • DOCX • TXT
+                  </div>
+
+                  {selectedFile && (
+                    <div
+                      style={{
+                        marginTop: '1rem',
+                        padding: '0.65rem 0.9rem',
+                        background: 'rgba(21, 128, 61, 0.08)',
+                        border: '1px solid rgba(21, 128, 61, 0.25)',
+                        borderRadius: 'var(--radius-sm)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        textAlign: 'left'
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
+                        <FileText size={16} color="var(--color-success)" style={{ flexShrink: 0 }} />
+                        <div style={{ minWidth: 0 }}>
+                          <strong style={{ fontSize: '0.84rem', color: 'var(--text-primary)', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {selectedFile.name}
+                          </strong>
+                          <span style={{ fontSize: '0.74rem', color: 'var(--color-success)' }}>
+                            ✓ {(selectedFile.size / 1024).toFixed(1)} KB — Ready for review
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleRemoveFile}
+                        style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0.2rem' }}
+                        title="Remove file"
+                      >
+                        <X size={15} />
+                      </button>
+                    </div>
+                  )}
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf,.doc,.docx,.txt"
+                    style={{ display: 'none' }}
+                    onChange={handleFileChange}
+                  />
+                </div>
+              </div>
+            ) : (
+              /* Mode 2: Secondary Paste Text Area */
+              <div>
+                <label style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.4rem', fontWeight: 500 }}>
+                  Paste Regulatory Draft Text
+                </label>
+                <textarea
+                  className="input-text"
+                  rows={8}
+                  value={docContent}
+                  onChange={(e) => setDocContent(e.target.value)}
+                  placeholder="Paste regulatory text, prescribing information, or SmPC sections here..."
+                  style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.84rem', resize: 'vertical' }}
                 />
               </div>
-            </div>
-          ) : (
-            /* Pasted Text Mode */
-            <div style={{ marginBottom: '1rem' }}>
-              <label style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.3rem' }}>
-                Document Content (Regulatory Text)
-              </label>
-              <textarea
-                className="input-text"
-                rows={9}
-                value={docContent}
-                onChange={(e) => setDocContent(e.target.value)}
-                placeholder="Paste regulatory text, prescribing information, or SmPC sections here..."
-                style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.85rem', resize: 'vertical' }}
-              />
-            </div>
-          )}
+            )}
+          </div>
 
-          {/* Metadata Section */}
-          <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '0.85rem', marginTop: '0.5rem' }}>
-            <div style={{ marginBottom: '0.75rem' }}>
-              <label style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.3rem' }}>
-                Document Title / Name *
-              </label>
-              <input
-                type="text"
-                className="input-text"
-                value={docName}
-                onChange={(e) => setDocName(e.target.value)}
-                style={{ width: '100%' }}
-                placeholder="e.g. Draft Prescribing Information v1.2"
-              />
+          {/* Card: Document Information (Grouped Metadata) */}
+          <div className="card">
+            <div className="card-header">
+              <span className="card-title">
+                <FileText size={16} color="var(--color-brand)" /> Document Information
+              </span>
+              <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                Required for regulatory ingestion
+              </span>
             </div>
 
-            <div className="grid-2" style={{ gap: '0.75rem', marginBottom: '0.75rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
               <div>
-                <label style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.3rem' }}>
-                  Regulatory Jurisdiction
-                </label>
-                <select
-                  className="select-box"
-                  value={jurisdiction}
-                  onChange={(e) => setJurisdiction(e.target.value)}
-                  style={{ width: '100%' }}
-                >
-                  <option value="US_FDA">US_FDA (United States FDA)</option>
-                  <option value="EMA">EMA (European Medicines Agency)</option>
-                  <option value="PMDA">PMDA (Japan PMDA)</option>
-                  <option value="Health_Canada">Health_Canada (Health Canada)</option>
-                  <option value="ICH">ICH (International Harmonisation)</option>
-                </select>
-              </div>
-
-              <div>
-                <label style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.3rem' }}>
-                  Document Type
-                </label>
-                <select
-                  className="select-box"
-                  value={docType}
-                  onChange={(e) => setDocType(e.target.value)}
-                  style={{ width: '100%' }}
-                >
-                  <option value="REGULATORY_LABEL">REGULATORY_LABEL (Prescribing Info / SPL)</option>
-                  <option value="SmPC">SmPC (Summary of Product Characteristics)</option>
-                  <option value="PRESCRIBING_INFORMATION">PRESCRIBING_INFORMATION (Full Label)</option>
-                  <option value="CLINICAL_OVERVIEW">CLINICAL_OVERVIEW (Module 2.5)</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="grid-2" style={{ gap: '0.75rem' }}>
-              <div>
-                <label style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.3rem' }}>
-                  Product Name (Optional)
+                <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: '0.3rem' }}>
+                  Document Name *
                 </label>
                 <input
                   type="text"
                   className="input-text"
-                  value={productName}
-                  onChange={(e) => setProductName(e.target.value)}
-                  placeholder="e.g. Cardiovax"
+                  value={docName}
+                  onChange={(e) => setDocName(e.target.value)}
                   style={{ width: '100%' }}
+                  placeholder="e.g. Draft Prescribing Information v1.2"
                 />
               </div>
 
-              <div>
-                <label style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.3rem' }}>
-                  Active Ingredient (Optional)
-                </label>
-                <input
-                  type="text"
-                  className="input-text"
-                  value={activeIngredient}
-                  onChange={(e) => setActiveIngredient(e.target.value)}
-                  placeholder="e.g. Acetylsalicylic acid"
-                  style={{ width: '100%' }}
-                />
+              <div className="grid-2" style={{ gap: '0.85rem' }}>
+                <div>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: '0.3rem' }}>
+                    Jurisdiction
+                  </label>
+                  <select
+                    className="select-box"
+                    value={jurisdiction}
+                    onChange={(e) => setJurisdiction(e.target.value)}
+                    style={{ width: '100%' }}
+                  >
+                    <option value="US_FDA">US FDA (United States)</option>
+                    <option value="EMA">EMA (European Union)</option>
+                    <option value="PMDA">PMDA (Japan)</option>
+                    <option value="Health_Canada">Health Canada</option>
+                    <option value="ICH">ICH (International)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: '0.3rem' }}>
+                    Document Type
+                  </label>
+                  <select
+                    className="select-box"
+                    value={docType}
+                    onChange={(e) => setDocType(e.target.value)}
+                    style={{ width: '100%' }}
+                  >
+                    <option value="REGULATORY_LABEL">Regulatory Label (Prescribing Info / SPL)</option>
+                    <option value="SmPC">SmPC (Summary of Product Characteristics)</option>
+                    <option value="PRESCRIBING_INFORMATION">Prescribing Information (Full Label)</option>
+                    <option value="CLINICAL_OVERVIEW">Clinical Overview (Module 2.5)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid-2" style={{ gap: '0.85rem' }}>
+                <div>
+                  <label style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.3rem' }}>
+                    Product Name (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    className="input-text"
+                    value={productName}
+                    onChange={(e) => setProductName(e.target.value)}
+                    placeholder="e.g. Cardiovax"
+                    style={{ width: '100%' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.3rem' }}>
+                    Active Ingredient (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    className="input-text"
+                    value={activeIngredient}
+                    onChange={(e) => setActiveIngredient(e.target.value)}
+                    placeholder="e.g. Acetylsalicylic acid"
+                    style={{ width: '100%' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginTop: '0.5rem', display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={handleIngestDocument}
+                  className="btn btn-primary"
+                  style={{
+                    fontSize: '0.9rem',
+                    padding: '0.65rem 1.4rem',
+                    fontWeight: 600,
+                    boxShadow: '0 2px 10px rgba(13, 148, 136, 0.25)',
+                  }}
+                  disabled={ingesting}
+                >
+                  <UploadCloud size={16} /> {ingesting ? 'Processing Document...' : 'Ingest Document'}
+                </button>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Ingestion Response & Segmented Review Column */}
-        <div className="card">
-          <div className="card-header">
-            <span className="card-title">
-              <CheckCircle2 size={16} color="var(--color-brand)" /> Ingestion Status & Content Chunks
-            </span>
-            <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-              {ingestResult ? 'Store Registered' : 'Awaiting Ingestion'}
-            </span>
-          </div>
-
-          {/* Ingestion Response Summary Card */}
-          {ingestResult && (
-            <div style={{
-              marginBottom: '1rem',
-              padding: '0.9rem',
-              background: 'rgba(14, 165, 233, 0.08)',
-              border: '1px solid rgba(14, 165, 233, 0.25)',
-              borderRadius: 'var(--radius-md)'
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#fff', fontWeight: '600', fontSize: '0.86rem' }}>
-                  <ShieldCheck size={16} color="var(--color-brand)" /> Document Ingestion Confirmed
-                </span>
-                <span className="status-pill">
-                  <span className="status-dot" /> Registered
-                </span>
-              </div>
-
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.7rem' }}>
-                {ingestResult.message}
-              </p>
-
-              <div className="grid-3" style={{ gap: '0.4rem', marginBottom: '0.5rem' }}>
-                <div style={{ background: 'var(--bg-main)', padding: '0.45rem', borderRadius: 'var(--radius-sm)' }}>
-                  <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', display: 'block' }}>DOCUMENT ID</span>
-                  <code style={{ fontSize: '0.78rem', color: 'var(--color-brand)' }}>{ingestResult.document_id}</code>
+        {/* Right Column: Ingestion Status & Review Actions */}
+        <div>
+          {ingestResult ? (
+            /* After Ingestion: Business-Friendly Result */
+            <div className="card">
+              <div
+                style={{
+                  padding: '1.25rem',
+                  background: 'linear-gradient(135deg, rgba(21, 128, 61, 0.08) 0%, rgba(13, 148, 136, 0.08) 100%)',
+                  border: '1px solid rgba(21, 128, 61, 0.25)',
+                  borderRadius: 'var(--radius-md)',
+                  marginBottom: '1.25rem'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.4rem' }}>
+                  <CheckCircle2 size={20} color="var(--color-success)" />
+                  <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+                    Document Ready for Review
+                  </h3>
                 </div>
-                <div style={{ background: 'var(--bg-main)', padding: '0.45rem', borderRadius: 'var(--radius-sm)' }}>
-                  <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', display: 'block' }}>JURISDICTION</span>
-                  <strong style={{ fontSize: '0.78rem', color: '#fff' }}>{ingestResult.jurisdiction}</strong>
-                </div>
-                <div style={{ background: 'var(--bg-main)', padding: '0.45rem', borderRadius: 'var(--radius-sm)' }}>
-                  <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', display: 'block' }}>DOCUMENT TYPE</span>
-                  <strong style={{ fontSize: '0.78rem', color: '#fff' }}>{ingestResult.document_type}</strong>
-                </div>
-              </div>
 
-              <div className="grid-2" style={{ gap: '0.4rem', marginBottom: '0.5rem' }}>
-                <div style={{ background: 'var(--bg-main)', padding: '0.45rem', borderRadius: 'var(--radius-sm)' }}>
-                  <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', display: 'block' }}>SECTIONS PARSED</span>
-                  <strong style={{ fontSize: '0.95rem', color: '#fff' }}>{ingestResult.sections_count}</strong>
-                </div>
-                <div style={{ background: 'var(--bg-main)', padding: '0.45rem', borderRadius: 'var(--radius-sm)' }}>
-                  <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', display: 'block' }}>CANDIDATE CHUNKS REGISTERED</span>
-                  <strong style={{ fontSize: '0.95rem', color: ingestResult.chunks_count > 0 ? 'var(--color-success)' : 'var(--color-warning)' }}>
-                    {ingestResult.chunks_count}
-                  </strong>
-                </div>
-              </div>
+                <p style={{ fontSize: '0.86rem', color: 'var(--text-secondary)', margin: '0 0 1rem 0' }}>
+                  Your document was successfully processed and registered for regulatory reuse analysis.
+                </p>
 
-              {/* Direct action button to compare with document if sections list is empty (e.g. binary upload) */}
-              {extractedSections.length === 0 && (
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.75rem' }}>
+                <div className="grid-2" style={{ gap: '0.75rem', marginBottom: '1.25rem' }}>
+                  <div style={{ background: '#ffffff', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Sections Identified
+                    </div>
+                    <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: '0.1rem' }}>
+                      {ingestResult.sections_count}
+                    </div>
+                  </div>
+
+                  <div style={{ background: '#ffffff', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Content Sections Available
+                    </div>
+                    <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--color-brand)', marginTop: '0.1rem' }}>
+                      {ingestResult.chunks_count}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Primary CTA: Find Reusable Content */}
+                <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
                   <button
-                    onClick={() => onSelectSectionForReview && onSelectSectionForReview({
-                      content_id: `${ingestResult.document_id}_item`,
-                      document_id: ingestResult.document_id,
-                      document_name: ingestResult.document_name,
-                      section: 'Ingested Document Draft',
-                      text: selectedFile ? `File: ${selectedFile.name} (Registered ${ingestResult.chunks_count} chunks in store)` : docContent,
-                      jurisdiction: ingestResult.jurisdiction,
-                      document_type: ingestResult.document_type,
-                    })}
+                    onClick={() => handleProceedToReview()}
                     className="btn btn-primary"
-                    style={{ fontSize: '0.78rem', padding: '0.4rem 0.8rem' }}
+                    style={{
+                      fontSize: '0.94rem',
+                      padding: '0.7rem 1.4rem',
+                      fontWeight: 600,
+                      boxShadow: '0 4px 12px rgba(13, 148, 136, 0.3)'
+                    }}
                   >
-                    Compare Ingested Content <ArrowRight size={12} />
+                    Find Reusable Content <ArrowRight size={16} />
                   </button>
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* Structured Sections List (Paste Mode) */}
-          {extractedSections.length > 0 ? (
-            <div>
-              <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                <Layers size={13} color="var(--color-brand)" /> Structured Sections Ready for Comparison ({extractedSections.length}):
               </div>
-              {extractedSections.map((sec) => (
-                <div
-                  key={sec.content_id}
-                  className="result-item"
-                  style={{
-                    borderColor: activeSectionId === sec.content_id ? 'var(--color-brand)' : 'var(--border-subtle)',
-                    background: activeSectionId === sec.content_id ? 'var(--bg-surface-elevated)' : 'var(--bg-main)'
-                  }}
-                  onClick={() => setActiveSectionId(sec.content_id)}
-                >
-                  <div className="result-title">
-                    <span>{sec.section || 'General Section'}</span>
-                    <span className="badge badge-section">{sec.content_id}</span>
+
+              {/* Structured Sections if available (e.g. Paste mode) */}
+              {extractedSections.length > 0 && (
+                <div style={{ marginBottom: '1.25rem' }}>
+                  <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.65rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <Layers size={14} color="var(--color-brand)" /> Sections Identified for Review ({extractedSections.length}):
                   </div>
-                  <div className="result-text" style={{ maxHeight: '80px', marginBottom: '0.6rem' }}>
-                    {sec.text}
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                    <button
-                      onClick={() => onSelectSectionForReview && onSelectSectionForReview(sec)}
-                      className="btn btn-secondary"
-                      style={{ fontSize: '0.78rem', padding: '0.35rem 0.75rem' }}
-                    >
-                      Find Reusable Candidates <ArrowRight size={12} />
-                    </button>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                    {extractedSections.map((sec) => (
+                      <div
+                        key={sec.content_id}
+                        className="result-item"
+                        style={{
+                          borderColor: activeSectionId === sec.content_id ? 'var(--color-brand)' : 'var(--border-subtle)',
+                          background: activeSectionId === sec.content_id ? 'var(--bg-surface-elevated)' : 'var(--bg-surface)'
+                        }}
+                        onClick={() => setActiveSectionId(sec.content_id)}
+                      >
+                        <div className="result-title">
+                          <span style={{ fontWeight: 600 }}>{sec.section || 'General Section'}</span>
+                          <span className="badge badge-section">{sec.content_id}</span>
+                        </div>
+                        <div className="result-text" style={{ maxHeight: '70px', marginBottom: '0.5rem', fontSize: '0.8rem' }}>
+                          {sec.text}
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                          <button
+                            onClick={() => handleProceedToReview(sec)}
+                            className="btn btn-secondary"
+                            style={{ fontSize: '0.78rem', padding: '0.35rem 0.75rem' }}
+                          >
+                            Find Reusable Content <ArrowRight size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              ))}
+              )}
+
+              {/* Secondary Expandable: View Processing Details */}
+              <div
+                style={{
+                  background: 'var(--bg-surface-elevated)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '0.85rem 1rem'
+                }}
+              >
+                <div
+                  onClick={() => setDetailsOpen(!detailsOpen)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    cursor: 'pointer',
+                    userSelect: 'none'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                    {detailsOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                    <span>View Processing Details</span>
+                  </div>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                    Document ID: <code>{ingestResult.document_id}</code>
+                  </span>
+                </div>
+
+                {detailsOpen && (
+                  <div style={{ marginTop: '0.85rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border-subtle)' }}>
+                    <div className="grid-3" style={{ gap: '0.5rem', marginBottom: '0.6rem' }}>
+                      <div style={{ background: '#ffffff', padding: '0.45rem 0.6rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
+                        <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', display: 'block' }}>DOCUMENT ID</span>
+                        <code style={{ fontSize: '0.76rem', color: 'var(--color-brand)' }}>{ingestResult.document_id}</code>
+                      </div>
+                      <div style={{ background: '#ffffff', padding: '0.45rem 0.6rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
+                        <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', display: 'block' }}>JURISDICTION</span>
+                        <strong style={{ fontSize: '0.76rem', color: 'var(--text-primary)' }}>{ingestResult.jurisdiction}</strong>
+                      </div>
+                      <div style={{ background: '#ffffff', padding: '0.45rem 0.6rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
+                        <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', display: 'block' }}>DOCUMENT TYPE</span>
+                        <strong style={{ fontSize: '0.76rem', color: 'var(--text-primary)' }}>{ingestResult.document_type}</strong>
+                      </div>
+                    </div>
+
+                    <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
+                      Processing status: {ingestResult.message}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
-          ) : !ingestResult ? (
-            <div className="empty-state">
-              <Database size={36} />
-              <p>Choose <strong>Upload File</strong> or <strong>Paste Text</strong>, review metadata, and click <strong>"Ingest Document"</strong> to parse sections and register chunks in the candidate store.</p>
+          ) : (
+            /* Before Ingestion: Initial Guidance State */
+            <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '340px', textAlign: 'center', padding: '2rem' }}>
+              <div style={{ maxWidth: '380px', margin: '0 auto' }}>
+                <div
+                  style={{
+                    width: '54px',
+                    height: '54px',
+                    borderRadius: '50%',
+                    background: 'rgba(13, 148, 136, 0.08)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    margin: '0 auto 1rem',
+                  }}
+                >
+                  <FileText size={26} color="var(--color-brand)" />
+                </div>
+
+                <h3 style={{ fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.45rem' }}>
+                  Ready to Start Review
+                </h3>
+
+                <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: '1.5', marginBottom: '1.25rem' }}>
+                  Select or drop a regulatory document file on the left, verify Document Information, and click <strong>Ingest Document</strong> to begin reuse analysis against approved drug labels.
+                </p>
+
+                <div style={{ background: 'var(--bg-surface-elevated)', borderRadius: 'var(--radius-sm)', padding: '0.75rem', border: '1px solid var(--border-subtle)', textAlign: 'left', fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                  <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.3rem' }}>Workflow steps:</div>
+                  <div>1. Select regulatory document (.pdf, .doc, .docx, .txt)</div>
+                  <div>2. Confirm jurisdiction and document type</div>
+                  <div>3. Click Ingest Document to discover reusable content</div>
+                </div>
+              </div>
             </div>
-          ) : null}
+          )}
         </div>
       </div>
     </div>

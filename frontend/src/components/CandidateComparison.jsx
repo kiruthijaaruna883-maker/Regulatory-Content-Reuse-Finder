@@ -11,9 +11,9 @@ import {
   Layers,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
   FileText,
   Sliders,
-  Sparkles,
   XCircle,
   Send,
   ShieldCheck
@@ -78,7 +78,7 @@ export default function CandidateComparison({
       'Adults: Take 1 to 2 tablets (500 mg) orally every 4 to 6 hours as needed. Maximum dosage: 8 tablets in 24 hours.'
   );
 
-  // Human Candidate Decision State (Consolidated in Phase 6G.5)
+  // Human Candidate Decision State
   const [selectedDecision, setSelectedDecision] = useState(null); // Explicit choice: REUSE | ADAPT | REJECT (defaults to null)
   const [reviewerName, setReviewerName] = useState('');
   const [reviewerNotes, setReviewerNotes] = useState('');
@@ -88,7 +88,7 @@ export default function CandidateComparison({
   const [decisionSubmitError, setDecisionSubmitError] = useState(null);
   const [recordedDecision, setRecordedDecision] = useState(null);
 
-  // Candidate Discovery Search State (Step 6.3 preserved)
+  // Candidate Discovery Search State
   const [searchQuery, setSearchQuery] = useState(
     targetSection?.section || targetSection?.document_name || 'aspirin'
   );
@@ -98,7 +98,7 @@ export default function CandidateComparison({
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState(null);
 
-  // Six-Dimensional Analysis State (Step 6.4 & 6G.2)
+  // Six-Dimensional Analysis State
   const [analysisResult, setAnalysisResult] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState(null);
@@ -109,6 +109,7 @@ export default function CandidateComparison({
   const [selectedDimensionFilter, setSelectedDimensionFilter] = useState('all');
   const [expandedFacts, setExpandedFacts] = useState({});
   const [showTraceabilityDetails, setShowTraceabilityDetails] = useState(false);
+  const [showDiscoveryConsole, setShowDiscoveryConsole] = useState(false);
 
   // Auto-discovery key ref to prevent repeated duplicate auto-discovery calls
   const autoDiscoveredKeyRef = useRef(null);
@@ -143,7 +144,7 @@ export default function CandidateComparison({
     setSelectedCandidateIndex(0);
   }
 
-  // Automatic Candidate Discovery & 6D Evaluation on Mount / Section Change (Phase 6G.2)
+  // Automatic Candidate Discovery & 6D Evaluation on Mount / Section Change
   useEffect(() => {
     const currentKey = targetSection?.content_id || targetSection?.section || (targetText ? targetText.slice(0, 60) : null);
     if (!currentKey || autoDiscoveredKeyRef.current === currentKey) {
@@ -171,7 +172,6 @@ export default function CandidateComparison({
         if (targetSection?.page !== undefined && targetSection?.page !== null) options.page = targetSection.page;
         if (targetSection?.content_type) options.content_type = targetSection.content_type;
 
-        // If candidateItem was provided as prop, compare against it; otherwise auto-retrieve
         const candidatePayloads = candidateItem
           ? [
               {
@@ -199,7 +199,6 @@ export default function CandidateComparison({
           setSelectedCandidateIndex(0);
         }
       } catch (err) {
-        // Non-blocking auto-discovery fallback
         console.warn('Auto-discovery non-blocking notice:', err);
       } finally {
         setAnalyzing(false);
@@ -209,7 +208,7 @@ export default function CandidateComparison({
     triggerAutoDiscovery();
   }, [targetSection, targetText, candidateItem, candidateText]);
 
-  // Trigger candidate discovery via api.searchCandidates (Step 6.3 preserved)
+  // Trigger candidate discovery via api.searchCandidates
   async function handleDiscoverCandidates(e) {
     if (e) e.preventDefault();
     setSearchError(null);
@@ -253,7 +252,7 @@ export default function CandidateComparison({
     setRecordedDecision(null);
   }
 
-  // Set active candidate from analyzed candidates list (Phase 6G.2)
+  // Set active candidate from analyzed candidates list
   function handleSelectAnalysisCandidate(idx) {
     setSelectedCandidateIndex(idx);
     const comp = analysisResult?.candidates?.[idx];
@@ -270,7 +269,7 @@ export default function CandidateComparison({
     }
   }
 
-  // Run Six-Dimensional Comparison via api.analyzeCandidates (Step 6.4)
+  // Run Six-Dimensional Comparison via api.analyzeCandidates
   async function handleRunSixDimensionalComparison() {
     setAnalysisError(null);
 
@@ -282,7 +281,7 @@ export default function CandidateComparison({
 
     if (!selectedCandidate) {
       setAnalysisError(
-        'Please select a regulatory candidate reference before running comparison. Use the discovery search above to find and select a candidate.'
+        'Please select a regulatory candidate reference before running comparison. Use the search tool to find and select a candidate.'
       );
       return;
     }
@@ -389,7 +388,7 @@ export default function CandidateComparison({
     };
   }
 
-  // Derive primary candidate evaluation from analysis result (supporting multiple discovered candidates)
+  // Derive primary candidate evaluation from analysis result
   const primaryCandidate = analysisResult?.candidates?.[selectedCandidateIndex] || analysisResult?.candidates?.[0] || null;
   const matchResult = primaryCandidate?.multi_dimensional_match || null;
   const falseMatchWarning =
@@ -428,7 +427,7 @@ export default function CandidateComparison({
     primaryCandidate?.candidate_id ||
     null;
 
-  // Advisory Recommendation Signals (Phase 6G.2 & 6G.3)
+  // Advisory Recommendation Signals
   const recommendedDecision =
     primaryCandidate?.recommended_decision ||
     selectedCandidate?.recommended_decision ||
@@ -450,7 +449,7 @@ export default function CandidateComparison({
     selectedCandidate?.adaptation_rationale ||
     null;
 
-  // Step 6G.5 Human Decision Authorization Handler
+  // Human Decision Authorization Handler
   async function handleSubmitDecision() {
     setDecisionValidationError(null);
     setDecisionSubmitError(null);
@@ -464,7 +463,7 @@ export default function CandidateComparison({
     // 2. Validate Provenance Context
     if (!targetContentId || !candidateId) {
       setDecisionValidationError(
-        'Valid target and candidate content identifiers are required to authorize a decision. Ensure target draft and candidate reference items are selected to establish full audit traceability.'
+        'Valid target and candidate content identifiers are required to authorize a decision. Ensure target draft and candidate reference items are selected.'
       );
       return;
     }
@@ -535,1499 +534,846 @@ export default function CandidateComparison({
 
   return (
     <div>
-      {/* Screen Header */}
-      <div className="screen-header">
-        <div>
-          <h2>Candidate Discovery & Six-Dimensional Comparison Workspace</h2>
-          <p>
-            Evaluate regulatory alignment across Meaning, Template, Context, Structure, Format, and Key Information with human-in-the-loop governance
-          </p>
+      {/* 1. Review Header (Simple Business Language) */}
+      <div className="card" style={{ marginBottom: '1.5rem', background: 'var(--bg-surface)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+          <div>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0.2rem 0.55rem', borderRadius: '9999px', background: 'rgba(13, 148, 136, 0.08)', color: 'var(--color-brand)', fontSize: '0.76rem', fontWeight: 600, marginBottom: '0.5rem' }}>
+              <GitCompare size={13} /> Candidate Comparison & Human Decision
+            </div>
+            <h2 style={{ fontSize: '1.45rem', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 0.35rem 0' }}>
+              Review Candidate Content
+            </h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', fontSize: '0.84rem', color: 'var(--text-secondary)' }}>
+              <span>
+                Draft Section: <strong>{targetSection?.section || 'Internal Draft Section'}</strong> ({targetSection?.document_name || 'Draft Prescribing Information'})
+              </span>
+              <span>•</span>
+              <span>
+                Candidate Reference: <strong>{selectedCandidate?.document_name || selectedCandidate?.product || 'Auto-Discovered Reference'}</strong> ({selectedCandidate?.source || 'DailyMed'})
+              </span>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+            <button
+              onClick={handleRunSixDimensionalComparison}
+              className="btn btn-secondary"
+              style={{ fontSize: '0.8rem', padding: '0.45rem 0.9rem' }}
+              disabled={analyzing}
+              title="Re-evaluate 6-dimensional comparison between draft and reference"
+            >
+              <GitCompare size={14} /> {analyzing ? 'Analyzing...' : 'Re-run Comparison'}
+            </button>
+            <button
+              onClick={() => setShowDiscoveryConsole(!showDiscoveryConsole)}
+              className="btn btn-secondary"
+              style={{ fontSize: '0.8rem', padding: '0.45rem 0.9rem' }}
+            >
+              <Search size={14} /> {showDiscoveryConsole ? 'Hide Search' : 'Search / Switch Candidate'}
+            </button>
+          </div>
         </div>
-        <button
-          onClick={handleRunSixDimensionalComparison}
-          className="btn btn-primary"
-          style={{ fontSize: '0.84rem', padding: '0.5rem 1rem' }}
-          disabled={analyzing}
-        >
-          <GitCompare size={15} /> {analyzing ? 'Analyzing...' : 'Run Six-Dimensional Comparison'}
-        </button>
+
+        {/* Multi-candidate Switcher Bar if multiple candidates discovered */}
+        {analysisResult?.candidates?.length > 1 && (
+          <div style={{ marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.76rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+              Discovered Candidates ({analysisResult.candidates.length}):
+            </span>
+            {analysisResult.candidates.map((compCand, idx) => {
+              const item = compCand.candidate || compCand;
+              const isSelected = selectedCandidateIndex === idx;
+              return (
+                <button
+                  key={item.content_id || idx}
+                  onClick={() => handleSelectAnalysisCandidate(idx)}
+                  className={`badge ${isSelected ? 'badge-section' : ''}`}
+                  style={{
+                    cursor: 'pointer',
+                    fontSize: '0.74rem',
+                    padding: '0.25rem 0.6rem',
+                    border: isSelected ? '1px solid var(--color-brand)' : '1px solid var(--border-subtle)',
+                    background: isSelected ? 'var(--bg-surface-elevated)' : 'transparent',
+                    color: isSelected ? 'var(--color-brand)' : 'var(--text-secondary)',
+                    fontWeight: isSelected ? 700 : 500,
+                  }}
+                >
+                  Candidate #{idx + 1}: {item.document_name || item.product || 'Record'} ({item.source})
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      {/* 1. Candidate Discovery Console (Step 6.3 preserved) */}
-      <div className="card" style={{ marginBottom: '1.5rem' }}>
-        <div className="card-header">
-          <span className="card-title">
-            <Search size={16} color="var(--color-brand)" /> Search Regulatory Candidates
-          </span>
-          <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-            Queries candidate stores and live authorities with cross-source deduplication
-          </span>
-        </div>
-
-        <form onSubmit={handleDiscoverCandidates} className="input-group" style={{ flexWrap: 'wrap', gap: '0.6rem' }}>
-          <input
-            type="text"
-            className="input-text"
-            placeholder="Search by drug name, active ingredient, or section topic (e.g. dosage, aspirin, pediatric)..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            style={{ minWidth: '280px', flex: 2 }}
-          />
-
-          <select
-            className="select-box"
-            value={sourceFilter}
-            onChange={(e) => setSourceFilter(e.target.value)}
-            style={{ minWidth: '160px' }}
-          >
-            <option value="all">All Sources</option>
-            <option value="ingested">Ingested Documents</option>
-            <option value="dailymed">DailyMed</option>
-            <option value="openfda">openFDA</option>
-          </select>
-
-          <select
-            className="select-box"
-            value={topK}
-            onChange={(e) => setTopK(Number(e.target.value))}
-            style={{ width: '90px' }}
-          >
-            <option value={5}>Top 5</option>
-            <option value={10}>Top 10</option>
-            <option value={20}>Top 20</option>
-            <option value={50}>Top 50</option>
-          </select>
-
-          <button
-            type="submit"
-            className="btn btn-primary"
-            disabled={searching}
-            style={{ fontSize: '0.84rem', padding: '0.6rem 1.1rem' }}
-          >
-            <Database size={14} /> {searching ? 'Discovering...' : 'Discover Candidates'}
-          </button>
-        </form>
-
-        {/* Discovery Inline Error Banner */}
-        {searchError && (
-          <div
-            style={{
-              marginTop: '1rem',
-              padding: '0.75rem 1rem',
-              background: 'rgba(239, 68, 68, 0.12)',
-              border: '1px solid rgba(239, 68, 68, 0.3)',
-              borderRadius: 'var(--radius-sm)',
-              color: '#fca5a5',
-              fontSize: '0.82rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-            }}
-          >
-            <AlertCircle size={16} color="var(--color-danger)" style={{ flexShrink: 0 }} />
-            <span>{searchError}</span>
+      {/* Expandable Candidate Discovery & Search Console */}
+      {showDiscoveryConsole && (
+        <div className="card" style={{ marginBottom: '1.5rem', background: 'var(--bg-surface-elevated)' }}>
+          <div className="card-header">
+            <span className="card-title">
+              <Search size={16} color="var(--color-brand)" /> Search Regulatory Candidates
+            </span>
+            <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+              Queries candidate stores and live health authority sources
+            </span>
           </div>
-        )}
 
-        {/* Automatically Discovered Candidates (Phase 6G.2) */}
-        {analysisResult?.candidates?.length > 0 && (
-          <div style={{ marginTop: '1.25rem', borderTop: '1px solid var(--border-subtle)', paddingTop: '1rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.4rem' }}>
-              <span style={{ fontSize: '0.84rem', color: 'var(--text-primary)', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <Sparkles size={15} color="var(--color-brand)" /> Discovered Regulatory Candidates ({analysisResult.candidates.length}):
-              </span>
-              <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                System-discovered & evaluated across 6 dimensions with advisory recommendations
-              </span>
+          <form onSubmit={handleDiscoverCandidates} className="input-group" style={{ flexWrap: 'wrap', gap: '0.6rem', marginBottom: '0.75rem' }}>
+            <input
+              type="text"
+              className="input-text"
+              placeholder="Search by drug name, active ingredient, or section topic..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{ minWidth: '260px', flex: 2 }}
+            />
+            <select
+              className="select-box"
+              value={sourceFilter}
+              onChange={(e) => setSourceFilter(e.target.value)}
+              style={{ minWidth: '150px' }}
+            >
+              <option value="all">All Sources</option>
+              <option value="ingested">Ingested Documents</option>
+              <option value="dailymed">DailyMed</option>
+              <option value="openfda">openFDA</option>
+            </select>
+            <select
+              className="select-box"
+              value={topK}
+              onChange={(e) => setTopK(Number(e.target.value))}
+              style={{ width: '85px' }}
+            >
+              <option value={5}>Top 5</option>
+              <option value={10}>Top 10</option>
+              <option value={20}>Top 20</option>
+            </select>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={searching}
+              style={{ fontSize: '0.82rem', padding: '0.55rem 1rem' }}
+            >
+              <Database size={14} /> {searching ? 'Searching...' : 'Find Candidates'}
+            </button>
+          </form>
+
+          {searchError && (
+            <div style={{ padding: '0.65rem 0.85rem', background: 'rgba(239, 68, 68, 0.12)', border: '1px solid var(--color-danger)', borderRadius: 'var(--radius-sm)', color: '#b91c1c', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+              <AlertCircle size={15} />
+              <span>{searchError}</span>
             </div>
+          )}
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {analysisResult.candidates.map((compCand, idx) => {
-                const item = compCand.candidate || compCand;
-                const isSelected = selectedCandidateIndex === idx;
-                const rec = compCand.recommended_decision;
-                const conf = compCand.recommendation_confidence;
-                const sim = compCand.similarity_score;
-                const reason = compCand.recommendation_reason;
-                const crossSources = item.metadata?.cross_sources;
-                const duplicateProvenance = item.metadata?.duplicate_provenance;
-                const hasFalseMatch = compCand.false_match_warning || item.false_match_warning;
-
-                return (
-                  <div
-                    key={item.content_id || idx}
-                    className="result-item"
-                    style={{
-                      borderColor: isSelected ? 'var(--color-brand)' : 'var(--border-subtle)',
-                      background: isSelected ? 'var(--bg-surface-elevated)' : 'var(--bg-main)',
-                      padding: '0.85rem',
-                    }}
-                  >
-                    <div className="result-title" style={{ alignItems: 'flex-start' }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                          <span style={{ fontWeight: '600', color: 'var(--text-primary)', fontSize: '0.9rem' }}>
-                            {item.document_name || item.product || 'Regulatory Record'}
-                          </span>
-                          <span className="badge" style={getSourceStyle(item.source)}>
-                            {item.source}
-                          </span>
-                          {item.section && (
-                            <span className="badge badge-section">
-                              {item.section}
-                            </span>
-                          )}
-                          {item.subsection && (
-                            <span className="badge badge-section" style={{ opacity: 0.85 }}>
-                              {item.subsection}
-                            </span>
-                          )}
-                          {sim !== undefined && sim !== null && (
-                            <span className="badge badge-section" style={{ fontSize: '0.72rem' }}>
-                              Alignment: {Math.round(sim * 100)}%
-                            </span>
-                          )}
-                          {rec && (
-                            <span
-                              className="badge"
-                              style={{
-                                fontSize: '0.72rem',
-                                fontWeight: '700',
-                                padding: '0.2rem 0.5rem',
-                                background:
-                                  rec === 'REUSE'
-                                    ? 'rgba(21, 128, 61, 0.15)'
-                                    : rec === 'ADAPT'
-                                    ? 'rgba(180, 83, 9, 0.15)'
-                                    : 'rgba(185, 28, 28, 0.15)',
-                                color:
-                                  rec === 'REUSE'
-                                    ? 'var(--color-success)'
-                                    : rec === 'ADAPT'
-                                    ? 'var(--color-warning)'
-                                    : 'var(--color-danger)',
-                                border: `1px solid ${
-                                  rec === 'REUSE'
-                                    ? 'rgba(21, 128, 61, 0.3)'
-                                    : rec === 'ADAPT'
-                                    ? 'rgba(180, 83, 9, 0.3)'
-                                    : 'rgba(185, 28, 28, 0.3)'
-                                }`,
-                              }}
-                            >
-                              AI: {rec} {conf !== null && conf !== undefined ? `(${Math.round(conf * 100)}%)` : ''}
-                            </span>
-                          )}
-                          {isSelected && (
-                            <span
-                              className="badge"
-                              style={{
-                                background: 'rgba(21, 128, 61, 0.15)',
-                                color: 'var(--color-success)',
-                                border: '1px solid rgba(21, 128, 61, 0.3)',
-                              }}
-                            >
-                              <CheckCircle2 size={11} /> Active in Comparison
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Factual Recommendation Reason preview */}
-                        {reason && (
-                          <div style={{ marginTop: '0.35rem', fontSize: '0.78rem', color: 'var(--text-secondary)', fontStyle: 'italic', lineHeight: 1.4 }}>
-                            {reason}
-                          </div>
-                        )}
-
-                        {/* Metadata & Provenance Row */}
-                        <div style={{ display: 'flex', gap: '0.8rem', flexWrap: 'wrap', marginTop: '0.35rem', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                          {item.content_id && (
-                            <span>Content ID: <code style={{ color: 'var(--color-brand)' }}>{item.content_id}</code></span>
-                          )}
-                          {item.document_id && (
-                            <span>Doc ID: <code>{item.document_id}</code></span>
-                          )}
-                          {item.source_identifier && (
-                            <span>Source ID: <code>{item.source_identifier}</code></span>
-                          )}
-                          {item.page !== undefined && item.page !== null && (
-                            <span>Page: <strong>{item.page}</strong></span>
-                          )}
-                          {item.location && (
-                            <span>Location: <strong>{item.location}</strong></span>
-                          )}
-                        </div>
-
-                        {/* Cross-Source & False Match Badges */}
-                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.35rem' }}>
-                          {crossSources && crossSources.length > 1 && (
-                            <span className="badge" style={{ background: 'rgba(14, 165, 233, 0.12)', color: 'var(--color-brand)', border: '1px solid rgba(14, 165, 233, 0.25)', fontSize: '0.72rem' }}>
-                              <Layers size={10} /> Corroborated by: {crossSources.join(', ')}
-                            </span>
-                          )}
-                          {duplicateProvenance && duplicateProvenance.length > 0 && (
-                            <span className="badge" style={{ background: 'rgba(245, 158, 11, 0.12)', color: 'var(--color-warning)', border: '1px solid rgba(245, 158, 11, 0.25)', fontSize: '0.72rem' }}>
-                              {duplicateProvenance.length} duplicate source record(s) merged
-                            </span>
-                          )}
-                          {hasFalseMatch && (
-                            <span className="badge" style={{ background: 'rgba(185, 28, 28, 0.15)', color: 'var(--color-danger)', border: '1px solid rgba(185, 28, 28, 0.3)', fontSize: '0.72rem' }}>
-                              <ShieldAlert size={11} /> False Match Warning
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => handleSelectAnalysisCandidate(idx)}
-                        className={`btn ${isSelected ? 'btn-secondary' : 'btn-primary'}`}
-                        style={{ fontSize: '0.76rem', padding: '0.35rem 0.75rem', flexShrink: 0 }}
-                      >
-                        {isSelected ? 'Active' : 'Select for Comparison'}
-                      </button>
+          {/* Search Results List */}
+          {searchResults.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '280px', overflowY: 'auto' }}>
+              {searchResults.map((cand) => (
+                <div
+                  key={cand.content_id}
+                  style={{
+                    background: '#ffffff',
+                    border: '1px solid var(--border-subtle)',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '0.75rem',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: '0.75rem',
+                  }}
+                >
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                      <strong style={{ fontSize: '0.86rem' }}>{cand.document_name || cand.product || 'Record'}</strong>
+                      <span className="badge" style={getSourceStyle(cand.source)}>{cand.source}</span>
+                      {cand.section && <span className="badge badge-section">{cand.section}</span>}
                     </div>
-
-                    <div className="result-text" style={{ maxHeight: '70px', marginTop: '0.5rem', fontSize: '0.82rem' }}>
-                      {item.text}
-                    </div>
-
-                    {item.source_url && (
-                      <div style={{ marginTop: '0.35rem' }}>
-                        <a href={item.source_url} target="_blank" rel="noopener noreferrer" className="trace-link" style={{ fontSize: '0.74rem' }}>
-                          <ExternalLink size={11} /> Trace Official Source Record
-                        </a>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Manual Search Results List (if user ran a custom query) */}
-        {searchResults.length > 0 && (
-          <div style={{ marginTop: '1.25rem', borderTop: '1px solid var(--border-subtle)', paddingTop: '1rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-              <span style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', fontWeight: '500' }}>
-                Manual Search Results ({searchResults.length}):
-              </span>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                Click "Select for Comparison" to populate the comparison workspace
-              </span>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {searchResults.map((cand) => {
-                const isSelected = selectedCandidate?.content_id === cand.content_id;
-                const crossSources = cand.metadata?.cross_sources;
-                const duplicateProvenance = cand.metadata?.duplicate_provenance;
-                const hasFalseMatch = cand.false_match_warning || cand.metadata?.false_match_warning;
-
-                return (
-                  <div
-                    key={cand.content_id}
-                    className="result-item"
-                    style={{
-                      borderColor: isSelected ? 'var(--color-brand)' : 'var(--border-subtle)',
-                      background: isSelected ? 'var(--bg-surface-elevated)' : 'var(--bg-main)',
-                      padding: '0.85rem',
-                    }}
-                  >
-                    <div className="result-title" style={{ alignItems: 'flex-start' }}>
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                          <span style={{ fontWeight: '600', color: 'var(--text-primary)', fontSize: '0.9rem' }}>
-                            {cand.document_name || cand.product || 'Regulatory Record'}
-                          </span>
-                          <span className="badge" style={getSourceStyle(cand.source)}>
-                            {cand.source}
-                          </span>
-                          {cand.section && (
-                            <span className="badge badge-section">
-                              {cand.section}
-                            </span>
-                          )}
-                          {cand.subsection && (
-                            <span className="badge badge-section" style={{ opacity: 0.85 }}>
-                              {cand.subsection}
-                            </span>
-                          )}
-                          {isSelected && (
-                            <span
-                              className="badge"
-                              style={{
-                                background: 'rgba(21, 128, 61, 0.15)',
-                                color: 'var(--color-success)',
-                                border: '1px solid rgba(21, 128, 61, 0.3)',
-                              }}
-                            >
-                              <CheckCircle2 size={11} /> Active in Comparison
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Metadata & Provenance Row */}
-                        <div style={{ display: 'flex', gap: '0.8rem', flexWrap: 'wrap', marginTop: '0.35rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                          {cand.content_id && (
-                            <span>Content ID: <code style={{ color: 'var(--color-brand)' }}>{cand.content_id}</code></span>
-                          )}
-                          {cand.document_id && (
-                            <span>Doc ID: <code>{cand.document_id}</code></span>
-                          )}
-                          {cand.source_identifier && (
-                            <span>Source ID: <code>{cand.source_identifier}</code></span>
-                          )}
-                          {cand.page !== undefined && cand.page !== null && (
-                            <span>Page: <strong>{cand.page}</strong></span>
-                          )}
-                          {cand.location && (
-                            <span>Location: <strong>{cand.location}</strong></span>
-                          )}
-                        </div>
-
-                        {/* Cross-Source & Duplicate Badges */}
-                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.35rem' }}>
-                          {crossSources && crossSources.length > 1 && (
-                            <span className="badge" style={{ background: 'rgba(14, 165, 233, 0.12)', color: 'var(--color-brand)', border: '1px solid rgba(14, 165, 233, 0.25)', fontSize: '0.72rem' }}>
-                              <Layers size={10} /> Corroborated by: {crossSources.join(', ')}
-                            </span>
-                          )}
-                          {duplicateProvenance && duplicateProvenance.length > 0 && (
-                            <span className="badge" style={{ background: 'rgba(245, 158, 11, 0.12)', color: 'var(--color-warning)', border: '1px solid rgba(245, 158, 11, 0.25)', fontSize: '0.72rem' }}>
-                              {duplicateProvenance.length} duplicate source record(s) merged
-                            </span>
-                          )}
-                          {hasFalseMatch && (
-                            <span className="badge" style={{ background: 'rgba(185, 28, 28, 0.15)', color: 'var(--color-danger)', border: '1px solid rgba(185, 28, 28, 0.3)', fontSize: '0.72rem' }}>
-                              <ShieldAlert size={11} /> Human Review Recommended
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      <button
-                        onClick={() => handleSelectCandidate(cand)}
-                        className={`btn ${isSelected ? 'btn-secondary' : 'btn-primary'}`}
-                        style={{ fontSize: '0.76rem', padding: '0.35rem 0.75rem', flexShrink: 0 }}
-                      >
-                        {isSelected ? 'Selected' : 'Select for Comparison'}
-                      </button>
-                    </div>
-
-                    <div className="result-text" style={{ maxHeight: '75px', marginTop: '0.5rem', fontSize: '0.82rem' }}>
+                    <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '0.25rem 0 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {cand.text}
-                    </div>
-
-                    {cand.source_url && (
-                      <div style={{ marginTop: '0.4rem' }}>
-                        <a href={cand.source_url} target="_blank" rel="noopener noreferrer" className="trace-link" style={{ fontSize: '0.75rem' }}>
-                          <ExternalLink size={11} /> Trace Official Source Record
-                        </a>
-                      </div>
-                    )}
+                    </p>
                   </div>
-                );
-              })}
+                  <button
+                    onClick={() => {
+                      handleSelectCandidate(cand);
+                      setShowDiscoveryConsole(false);
+                    }}
+                    className="btn btn-secondary"
+                    style={{ fontSize: '0.76rem', padding: '0.35rem 0.75rem', flexShrink: 0 }}
+                  >
+                    Select This Candidate
+                  </button>
+                </div>
+              ))}
             </div>
-          </div>
-        )}
+          )}
+        </div>
+      )}
 
-        {/* Empty state when query executed but returned 0 items */}
-        {!searching && searchResults.length === 0 && (!analysisResult?.candidates || analysisResult.candidates.length === 0) && searchQuery && (
-          <div style={{ marginTop: '1rem', padding: '0.85rem', background: 'var(--bg-main)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
-            No regulatory candidates were discovered. Try a broader search term or select another section.
-          </div>
-        )}
-      </div>
-
-      {/* Comparison Inline Error Banner */}
+      {/* Global Error Banner */}
       {analysisError && (
-        <div
-          style={{
-            marginBottom: '1.25rem',
-            padding: '0.75rem 1rem',
-            background: 'rgba(239, 68, 68, 0.12)',
-            border: '1px solid rgba(239, 68, 68, 0.3)',
-            borderRadius: 'var(--radius-sm)',
-            color: '#fca5a5',
-            fontSize: '0.84rem',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-          }}
-        >
-          <AlertCircle size={16} color="var(--color-danger)" style={{ flexShrink: 0 }} />
+        <div style={{ marginBottom: '1.25rem', padding: '0.75rem 1rem', background: 'rgba(239, 68, 68, 0.12)', border: '1px solid var(--color-danger)', borderRadius: 'var(--radius-sm)', color: '#b91c1c', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <AlertCircle size={16} />
           <span>{analysisError}</span>
         </div>
       )}
 
-      {/* 2. Side-by-Side Drafting & Precedent Columns */}
-      <div className="grid-2" style={{ marginBottom: '1.5rem' }}>
-        {/* Left: Current Draft Content Column */}
-        <div className="card">
-          <div className="card-header">
-            <span className="card-title">
-              Current Draft Content
-            </span>
-            <span className="badge badge-section">
-              {targetSection?.section || 'Internal Section'}
-            </span>
-          </div>
+      {/* 2. Advisory Recommendation — PROMINENT */}
+      {recommendedDecision ? (
+        <div
+          className="card"
+          style={{
+            marginBottom: '1.5rem',
+            padding: '1.25rem 1.5rem',
+            background:
+              recommendedDecision === 'REUSE'
+                ? 'linear-gradient(135deg, rgba(21, 128, 61, 0.08) 0%, #ffffff 100%)'
+                : recommendedDecision === 'ADAPT'
+                ? 'linear-gradient(135deg, rgba(180, 83, 9, 0.08) 0%, #ffffff 100%)'
+                : 'linear-gradient(135deg, rgba(185, 28, 28, 0.08) 0%, #ffffff 100%)',
+            border: `1.5px solid ${
+              recommendedDecision === 'REUSE'
+                ? 'rgba(21, 128, 61, 0.35)'
+                : recommendedDecision === 'ADAPT'
+                ? 'rgba(180, 83, 9, 0.35)'
+                : 'rgba(185, 28, 28, 0.35)'
+            }`,
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.6rem', marginBottom: '0.6rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <span
+                style={{
+                  fontSize: '0.88rem',
+                  fontWeight: 700,
+                  letterSpacing: '0.04em',
+                  padding: '0.35rem 0.8rem',
+                  borderRadius: 'var(--radius-sm)',
+                  background:
+                    recommendedDecision === 'REUSE'
+                      ? 'rgba(21, 128, 61, 0.15)'
+                      : recommendedDecision === 'ADAPT'
+                      ? 'rgba(180, 83, 9, 0.15)'
+                      : 'rgba(185, 28, 28, 0.15)',
+                  color:
+                    recommendedDecision === 'REUSE'
+                      ? 'var(--color-success)'
+                      : recommendedDecision === 'ADAPT'
+                      ? 'var(--color-warning)'
+                      : 'var(--color-danger)',
+                  border: `1px solid ${
+                    recommendedDecision === 'REUSE'
+                      ? 'rgba(21, 128, 61, 0.3)'
+                      : recommendedDecision === 'ADAPT'
+                      ? 'rgba(180, 83, 9, 0.3)'
+                      : 'rgba(185, 28, 28, 0.3)'
+                  }`,
+                }}
+              >
+                {recommendedDecision}
+              </span>
+              <div>
+                <strong style={{ fontSize: '0.94rem', color: 'var(--text-primary)', display: 'block' }}>
+                  Advisory Recommendation
+                </strong>
+                <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                  Human decision required — The regulatory reviewer retains final authority
+                </span>
+              </div>
+            </div>
 
-          <div style={{ marginBottom: '0.5rem', fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.4rem' }}>
-            <span>Document: <strong>{targetSection?.document_name || 'Draft Label v1.0'}</strong></span>
-            {targetSection?.jurisdiction && (
-              <span className="badge" style={{ fontSize: '0.7rem' }}>{targetSection.jurisdiction}</span>
+            {recommendationConfidence !== null && recommendationConfidence !== undefined && (
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', background: 'var(--bg-surface-elevated)', padding: '0.25rem 0.65rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)', fontWeight: 600 }}>
+                Advisory Confidence: {Math.round(recommendationConfidence * 100)}%
+              </span>
             )}
           </div>
 
-          {/* Target Provenance Metadata Row */}
-          {(targetSection?.document_id || targetSection?.content_id) && (
-            <div style={{ marginBottom: '0.5rem', fontSize: '0.74rem', color: 'var(--text-muted)', display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
-              {targetSection?.document_id && (
-                <span>Doc ID: <code>{targetSection.document_id}</code></span>
-              )}
-              {targetSection?.content_id && (
-                <span>Content ID: <code style={{ color: 'var(--color-brand)' }}>{targetSection.content_id}</code></span>
+          {/* 3. Why Was This Recommended? */}
+          <div style={{ marginTop: '0.6rem', background: '#ffffff', padding: '0.85rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
+            <span style={{ fontSize: '0.76rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '0.25rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Why Was This Recommended?
+            </span>
+            <p style={{ fontSize: '0.88rem', color: 'var(--text-primary)', margin: 0, lineHeight: 1.5 }}>
+              {recommendationReason || matchResult?.overall_alignment_summary || analysisResult?.summary_explanation || 'Candidate aligns with established regulatory standards.'}
+            </p>
+          </div>
+
+          {/* ADAPT Advisory Wording (when recommended) */}
+          {recommendedDecision === 'ADAPT' && proposedAdaptedText && (
+            <div style={{ marginTop: '0.75rem', background: 'rgba(245, 158, 11, 0.05)', padding: '0.85rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(245, 158, 11, 0.25)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+                <strong style={{ fontSize: '0.82rem', color: 'var(--color-warning)' }}>
+                  Advisory Proposed Adaptation:
+                </strong>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAdaptationInstructions(proposedAdaptedText);
+                    setSelectedDecision('ADAPT');
+                    setDecisionValidationError(null);
+                    const el = document.getElementById('decision-station');
+                    if (el) el.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                  className="btn btn-secondary"
+                  style={{ fontSize: '0.74rem', padding: '0.25rem 0.65rem', color: 'var(--color-warning)' }}
+                >
+                  <FileText size={12} /> Use As Starting Instructions
+                </button>
+              </div>
+              <p style={{ fontSize: '0.84rem', color: 'var(--text-primary)', margin: 0, fontStyle: 'italic', lineHeight: 1.45 }}>
+                "{proposedAdaptedText}"
+              </p>
+              {adaptationRationale && (
+                <div style={{ marginTop: '0.4rem', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                  <strong style={{ color: 'var(--text-secondary)' }}>Adaptation Rationale:</strong> {adaptationRationale}
+                </div>
               )}
             </div>
           )}
 
+          {/* False Match Discrepancy Alert */}
+          {falseMatchWarning && (
+            <div style={{ marginTop: '0.75rem', padding: '0.75rem 1rem', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <ShieldAlert size={18} color="var(--color-danger)" style={{ flexShrink: 0 }} />
+              <div>
+                <strong style={{ fontSize: '0.82rem', color: 'var(--color-danger)', display: 'block' }}>False Match Warning</strong>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}>{falseMatchWarning}</span>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {/* 4. Side-by-Side Content Comparison */}
+      <div className="grid-2" style={{ marginBottom: '1.5rem' }}>
+        {/* Left: Target Content (Current Draft) */}
+        <div className="card">
+          <div className="card-header">
+            <div>
+              <span className="card-title">
+                <FileText size={16} color="var(--color-brand)" /> Target Content (Current Draft)
+              </span>
+              <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                {targetSection?.document_name || 'Draft Label'} • {targetSection?.section || 'Section'}
+              </span>
+            </div>
+            {targetSection?.jurisdiction && (
+              <span className="badge badge-section" style={{ fontSize: '0.72rem' }}>
+                {targetSection.jurisdiction}
+              </span>
+            )}
+          </div>
+
           <textarea
             className="input-text"
-            rows={8}
+            rows={7}
             value={targetText}
             onChange={(e) => setTargetText(e.target.value)}
-            style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.85rem' }}
+            style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.85rem', lineHeight: 1.45 }}
+            placeholder="Target draft content..."
           />
         </div>
 
-        {/* Right: Selected Candidate Regulatory Precedent Column */}
+        {/* Right: Candidate Content (Approved Reference) */}
         <div className="card">
           <div className="card-header">
-            <span className="card-title">
-              Regulatory Candidate Reference
-            </span>
-            <span className="badge" style={getSourceStyle(selectedCandidate?.source)}>
-              {selectedCandidate?.source || 'No Candidate Selected'}
-            </span>
-          </div>
-
-          <div style={{ marginBottom: '0.5rem', fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.4rem' }}>
-            <span>Precedent: <strong>{selectedCandidate?.document_name || selectedCandidate?.product || 'Select a candidate above'}</strong></span>
-            {selectedCandidate?.source_identifier && (
-              <span>ID: <code>{selectedCandidate.source_identifier}</code></span>
-            )}
-          </div>
-
-          {/* Selected Candidate Provenance Details */}
-          {(selectedCandidate?.content_id || selectedCandidate?.document_id || selectedCandidate?.page || selectedCandidate?.location) && (
-            <div style={{ marginBottom: '0.5rem', fontSize: '0.74rem', color: 'var(--text-muted)', display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
-              {selectedCandidate?.content_id && (
-                <span>Content ID: <code style={{ color: 'var(--color-brand)' }}>{selectedCandidate.content_id}</code></span>
-              )}
-              {selectedCandidate?.document_id && (
-                <span>Doc ID: <code>{selectedCandidate.document_id}</code></span>
-              )}
-              {selectedCandidate?.page !== undefined && selectedCandidate?.page !== null && (
-                <span>Page: <strong>{selectedCandidate.page}</strong></span>
-              )}
-              {selectedCandidate?.location && (
-                <span>Loc: <strong>{selectedCandidate.location}</strong></span>
-              )}
-            </div>
-          )}
-
-          {/* Selected Candidate Cross-Source Badges */}
-          {selectedCandidate?.metadata?.cross_sources && selectedCandidate.metadata.cross_sources.length > 1 && (
-            <div style={{ marginBottom: '0.5rem' }}>
-              <span className="badge" style={{ background: 'rgba(14, 165, 233, 0.12)', color: 'var(--color-brand)', border: '1px solid rgba(14, 165, 233, 0.25)', fontSize: '0.72rem' }}>
-                <Layers size={10} /> Corroborated by: {selectedCandidate.metadata.cross_sources.join(', ')}
+            <div>
+              <span className="card-title">
+                <Database size={16} color="var(--color-dailymed)" /> Candidate Content (Approved Reference)
+              </span>
+              <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                {selectedCandidate?.document_name || selectedCandidate?.product || 'Reference Label'} • {selectedCandidate?.section || 'Approved Section'}
               </span>
             </div>
-          )}
+            <span className="badge" style={getSourceStyle(selectedCandidate?.source)}>
+              {selectedCandidate?.source || 'Reference'}
+            </span>
+          </div>
 
           <textarea
             className="input-text"
-            rows={8}
+            rows={7}
             value={candidateText}
             onChange={(e) => setCandidateText(e.target.value)}
-            style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.85rem' }}
+            style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.85rem', lineHeight: 1.45 }}
+            placeholder="Candidate reference content..."
           />
 
           {selectedCandidate?.source_url && (
-            <div style={{ marginTop: '0.5rem' }}>
-              <a href={selectedCandidate.source_url} target="_blank" rel="noopener noreferrer" className="trace-link">
-                <ExternalLink size={12} /> Trace to Official Source
+            <div style={{ marginTop: '0.5rem', display: 'flex', justifyContent: 'flex-end' }}>
+              <a href={selectedCandidate.source_url} target="_blank" rel="noopener noreferrer" className="trace-link" style={{ fontSize: '0.74rem' }}>
+                <ExternalLink size={12} /> Trace Official Health Authority Record
               </a>
             </div>
           )}
         </div>
       </div>
 
-      {/* 3. Six-Dimensional Regulatory Comparison Panel */}
-      {analysisResult ? (
-        <div className="card" style={{ marginBottom: '1.5rem' }}>
-          <div className="card-header">
-            <div>
-              <span className="card-title">
-                <GitCompare size={16} color="var(--color-brand)" /> Six-Dimensional Regulatory Alignment Assessment
-              </span>
-              <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0 0' }}>
-                Comprehensive multi-dimensional evaluation preventing reliance on raw semantic similarity
-              </p>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-              {primaryCandidate?.similarity_score !== undefined && primaryCandidate?.similarity_score !== null && (
-                <span className="badge badge-section" style={{ fontSize: '0.75rem' }}>
-                  Retrieval Similarity: {(primaryCandidate.similarity_score * 100).toFixed(0)}%
-                </span>
-              )}
-              <span className="badge" style={{ background: 'rgba(14, 165, 233, 0.12)', color: 'var(--color-brand)', border: '1px solid rgba(14, 165, 233, 0.3)' }}>
-                Session: {analysisResult.comparison_id}
-              </span>
-            </div>
-          </div>
-
-          {/* Advisory Recommendation Banner (Phase 6G.2) */}
-          {primaryCandidate?.recommended_decision && (
-            <div
-              style={{
-                marginBottom: '1.25rem',
-                padding: '1rem 1.25rem',
-                background:
-                  primaryCandidate.recommended_decision === 'REUSE'
-                    ? 'rgba(21, 128, 61, 0.08)'
-                    : primaryCandidate.recommended_decision === 'ADAPT'
-                    ? 'rgba(180, 83, 9, 0.08)'
-                    : 'rgba(185, 28, 28, 0.08)',
-                border: `1.5px solid ${
-                  primaryCandidate.recommended_decision === 'REUSE'
-                    ? 'rgba(21, 128, 61, 0.35)'
-                    : primaryCandidate.recommended_decision === 'ADAPT'
-                    ? 'rgba(180, 83, 9, 0.35)'
-                    : 'rgba(185, 28, 28, 0.35)'
-                }`,
-                borderRadius: 'var(--radius-md)',
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                  <span
-                    className="badge"
-                    style={{
-                      fontSize: '0.8rem',
-                      fontWeight: '700',
-                      letterSpacing: '0.04em',
-                      padding: '0.3rem 0.65rem',
-                      background:
-                        primaryCandidate.recommended_decision === 'REUSE'
-                          ? 'rgba(21, 128, 61, 0.18)'
-                          : primaryCandidate.recommended_decision === 'ADAPT'
-                          ? 'rgba(180, 83, 9, 0.18)'
-                          : 'rgba(185, 28, 28, 0.18)',
-                      color:
-                        primaryCandidate.recommended_decision === 'REUSE'
-                          ? 'var(--color-success)'
-                          : primaryCandidate.recommended_decision === 'ADAPT'
-                          ? 'var(--color-warning)'
-                          : 'var(--color-danger)',
-                    }}
-                  >
-                    {primaryCandidate.recommended_decision}
-                  </span>
-                  <strong style={{ fontSize: '0.92rem', color: 'var(--text-primary)' }}>
-                    ADVISORY RECOMMENDATION — HUMAN GOVERNANCE REQUIRED
-                  </strong>
-                </div>
-
-                {primaryCandidate.recommendation_confidence !== null && primaryCandidate.recommendation_confidence !== undefined && (
-                  <span
-                    style={{
-                      fontSize: '0.76rem',
-                      color: 'var(--text-secondary)',
-                      fontWeight: '600',
-                      background: 'var(--bg-surface)',
-                      padding: '0.2rem 0.5rem',
-                      borderRadius: 'var(--radius-sm)',
-                      border: '1px solid var(--border-subtle)',
-                    }}
-                  >
-                    Advisory Confidence: {Math.round(primaryCandidate.recommendation_confidence * 100)}%
-                  </span>
-                )}
-              </div>
-
-              {primaryCandidate.recommendation_reason && (
-                <p style={{ color: 'var(--text-primary)', fontSize: '0.86rem', margin: '0.4rem 0 0.5rem 0', lineHeight: 1.5 }}>
-                  {primaryCandidate.recommendation_reason}
-                </p>
-              )}
-
-              {/* Phase 6G.3: Proposed Adapted Wording & Rationale */}
-              {primaryCandidate.recommended_decision === 'ADAPT' && primaryCandidate.proposed_adapted_text && (
-                <div
-                  style={{
-                    margin: '0.75rem 0',
-                    padding: '0.85rem 1rem',
-                    background: 'var(--bg-surface)',
-                    border: '1px solid rgba(180, 83, 9, 0.3)',
-                    borderRadius: 'var(--radius-sm)',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.4rem', flexWrap: 'wrap', gap: '0.4rem' }}>
-                    <strong style={{ fontSize: '0.82rem', color: '#fbbf24', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                      Proposed Adapted Wording (Advisory Proposal)
-                    </strong>
-                    <span className="badge" style={{ fontSize: '0.68rem', background: 'rgba(180, 83, 9, 0.15)', color: 'var(--color-warning)' }}>
-                      Proposal Only — Subject to Human Review
-                    </span>
-                  </div>
-                  <div
-                    style={{
-                      fontSize: '0.86rem',
-                      color: 'var(--text-primary)',
-                      lineHeight: 1.5,
-                      padding: '0.6rem 0.75rem',
-                      background: 'var(--bg-main)',
-                      borderRadius: 'var(--radius-sm)',
-                      border: '1px solid var(--border-subtle)',
-                      fontFamily: 'inherit',
-                      whiteSpace: 'pre-wrap',
-                    }}
-                  >
-                    {primaryCandidate.proposed_adapted_text}
-                  </div>
-                  {primaryCandidate.adaptation_rationale && (
-                    <div style={{ marginTop: '0.5rem' }}>
-                      <strong style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.2rem' }}>
-                        Adaptation Rationale:
-                      </strong>
-                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0, lineHeight: 1.45 }}>
-                        {primaryCandidate.adaptation_rationale}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                <ShieldAlert size={12} />
-                <span>
-                  Advisory comparison output only. The human regulatory reviewer retains exclusive legal authority and must explicitly record and authorize any decision.
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* False Match Warning Banner */}
-          {falseMatchWarning && (
-            <div
-              style={{
-                marginBottom: '1.25rem',
-                padding: '0.85rem 1.1rem',
-                background: 'rgba(239, 68, 68, 0.12)',
-                border: '1px solid rgba(239, 68, 68, 0.4)',
-                borderRadius: 'var(--radius-md)',
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: '0.75rem',
-              }}
-            >
-              <ShieldAlert size={20} color="var(--color-danger)" style={{ flexShrink: 0, marginTop: '2px' }} />
-              <div>
-                <strong style={{ color: '#fca5a5', fontSize: '0.88rem', display: 'block', marginBottom: '0.2rem' }}>
-                  False Match Discrepancy Detected
-                </strong>
-                <p style={{ color: 'var(--text-primary)', fontSize: '0.82rem', margin: 0, lineHeight: 1.5 }}>
-                  {falseMatchWarning}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Overall Alignment Summary Banner */}
-          <div
-            style={{
-              marginBottom: '1.25rem',
-              padding: '0.85rem 1rem',
-              background: 'var(--bg-main)',
-              border: '1px solid var(--border-subtle)',
-              borderRadius: 'var(--radius-md)',
-            }}
-          >
-            <span style={{ fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>
-              Overall Multi-Dimensional Alignment Summary
+      {/* 5. Six Comparison Dimensions (Compact Summary + Detail Cards) */}
+      <div className="card" style={{ marginBottom: '1.5rem' }}>
+        <div className="card-header">
+          <div>
+            <span className="card-title">
+              <Layers size={16} color="var(--color-brand)" /> Six-Dimensional Regulatory Alignment
             </span>
-            <p style={{ fontSize: '0.86rem', color: 'var(--text-primary)', margin: 0, lineHeight: 1.5 }}>
-              {matchResult?.overall_alignment_summary || analysisResult.summary_explanation || 'Evaluation complete across all six regulatory dimensions.'}
+            <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '0.15rem 0 0 0' }}>
+              Multi-dimensional regulatory analysis across established health authority criteria
             </p>
           </div>
+          {primaryCandidate?.similarity_score !== undefined && primaryCandidate?.similarity_score !== null && (
+            <span className="badge badge-section" style={{ fontSize: '0.75rem' }}>
+              Overall Retrieval Similarity: {Math.round(primaryCandidate.similarity_score * 100)}%
+            </span>
+          )}
+        </div>
 
-          {/* Six Dimension Cards Grid */}
-          <div className="grid-3" style={{ marginBottom: '1.25rem', gap: '1rem' }}>
-            {DIMENSIONS.map((dim) => {
-              const evalData = matchResult?.[dim.key];
-              const status = evalData?.status || 'NOT_APPLICABLE';
-              const isExpanded = !!expandedFacts[dim.key];
+        {/* Compact Dimension Status Chips */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.5rem', marginBottom: '1rem', padding: '0.75rem', background: 'var(--bg-surface-elevated)', borderRadius: 'var(--radius-md)' }}>
+          {DIMENSIONS.map((dim) => {
+            const evalData = matchResult?.[dim.key];
+            const status = evalData?.status || 'EVALUATED';
+            return (
+              <div key={dim.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.35rem 0.5rem', background: '#ffffff', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
+                <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                  {dim.name}
+                </span>
+                <span className="badge" style={{ ...getStatusStyle(status), fontSize: '0.68rem', padding: '0.15rem 0.4rem' }}>
+                  {status}
+                </span>
+              </div>
+            );
+          })}
+        </div>
 
-              return (
-                <div
-                  key={dim.key}
-                  style={{
-                    background: 'var(--bg-main)',
-                    border: '1px solid var(--border-subtle)',
-                    borderRadius: 'var(--radius-md)',
-                    padding: '0.9rem',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'space-between',
-                  }}
-                >
-                  <div>
-                    {/* Dimension Header & Status Badge */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.4rem', gap: '0.5rem' }}>
-                      <div>
-                        <strong style={{ color: '#fff', fontSize: '0.9rem' }}>
-                          {dim.number}. {dim.name}
-                        </strong>
-                      </div>
-                      <span className="badge" style={getStatusStyle(status)}>
-                        {status}
-                      </span>
-                    </div>
+        {/* Six Dimensions Breakdown Cards */}
+        <div className="grid-3" style={{ gap: '0.85rem' }}>
+          {DIMENSIONS.map((dim) => {
+            const evalData = matchResult?.[dim.key];
+            const status = evalData?.status || 'EVALUATED';
+            const isExpanded = !!expandedFacts[dim.key];
 
-                    <p style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginBottom: '0.6rem', lineHeight: 1.4 }}>
-                      {dim.description}
-                    </p>
-
-                    {/* Alignment Score if present */}
-                    {evalData?.score !== undefined && evalData?.score !== null && (
-                      <div style={{ marginBottom: '0.6rem' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>
-                          <span>Alignment Score</span>
-                          <strong>{Math.round(evalData.score * 100)}%</strong>
-                        </div>
-                        <div style={{ height: '4px', background: 'rgba(255, 255, 255, 0.08)', borderRadius: '2px', overflow: 'hidden' }}>
-                          <div
-                            style={{
-                              height: '100%',
-                              width: `${Math.min(Math.max(evalData.score * 100, 0), 100)}%`,
-                              background:
-                                evalData.score >= 0.8
-                                  ? 'var(--color-success)'
-                                  : evalData.score >= 0.5
-                                  ? 'var(--color-warning)'
-                                  : 'var(--color-danger)',
-                            }}
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Factual Analysis Details */}
-                    <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.45, marginBottom: '0.6rem' }}>
-                      {evalData?.details || 'Dimension evaluated according to regulatory standards.'}
-                    </p>
+            return (
+              <div
+                key={dim.key}
+                style={{
+                  background: 'var(--bg-surface-elevated)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '0.85rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                    <strong style={{ fontSize: '0.86rem', color: 'var(--text-primary)' }}>
+                      {dim.number}. {dim.name}
+                    </strong>
+                    <span className="badge" style={getStatusStyle(status)}>
+                      {status}
+                    </span>
                   </div>
 
-                  {/* Facts & Reasoning Expandable Section */}
-                  <div>
-                    {(evalData?.observed_from_source || evalData?.model_interpretation) && (
-                      <div>
-                        <button
-                          type="button"
-                          onClick={() => toggleFactExpansion(dim.key)}
-                          className="btn btn-secondary"
-                          style={{
-                            width: '100%',
-                            fontSize: '0.72rem',
-                            padding: '0.3rem 0.5rem',
-                            justifyContent: 'space-between',
-                          }}
-                        >
-                          <span>{isExpanded ? 'Hide Evidence & Reasoning' : 'View Evidence & Reasoning'}</span>
-                          {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                        </button>
+                  <p style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: '0.5rem', lineHeight: 1.4 }}>
+                    {dim.description}
+                  </p>
 
-                        {isExpanded && (
-                          <div style={{ marginTop: '0.5rem', padding: '0.55rem', background: 'var(--bg-surface-elevated)', borderRadius: 'var(--radius-sm)', fontSize: '0.73rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                            {evalData?.observed_from_source && (
-                              <div>
-                                <span style={{ color: 'var(--color-brand)', fontWeight: '600', display: 'block', marginBottom: '0.15rem' }}>
-                                  Observed from Source:
-                                </span>
-                                <span style={{ color: 'var(--text-secondary)' }}>{evalData.observed_from_source}</span>
-                              </div>
-                            )}
-                            {evalData?.model_interpretation && (
-                              <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '0.35rem' }}>
-                                <span style={{ color: 'var(--color-openfda)', fontWeight: '600', display: 'block', marginBottom: '0.15rem' }}>
-                                  Model Interpretation:
-                                </span>
-                                <span style={{ color: 'var(--text-secondary)' }}>{evalData.model_interpretation}</span>
-                              </div>
-                            )}
+                  {evalData?.score !== undefined && evalData?.score !== null && (
+                    <div style={{ marginBottom: '0.5rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '0.2rem' }}>
+                        <span>Alignment</span>
+                        <strong>{Math.round(evalData.score * 100)}%</strong>
+                      </div>
+                      <div style={{ height: '4px', background: 'var(--border-subtle)', borderRadius: '2px', overflow: 'hidden' }}>
+                        <div
+                          style={{
+                            height: '100%',
+                            width: `${Math.min(Math.max(evalData.score * 100, 0), 100)}%`,
+                            background:
+                              evalData.score >= 0.8
+                                ? 'var(--color-success)'
+                                : evalData.score >= 0.5
+                                ? 'var(--color-warning)'
+                                : 'var(--color-danger)',
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.45, margin: '0 0 0.5rem 0' }}>
+                    {evalData?.details || 'Dimension evaluated according to regulatory standards.'}
+                  </p>
+                </div>
+
+                {/* Evidence & Reasoning Expandable */}
+                {(evalData?.observed_from_source || evalData?.model_interpretation) && (
+                  <div style={{ marginTop: '0.4rem', borderTop: '1px solid var(--border-subtle)', paddingTop: '0.4rem' }}>
+                    <button
+                      type="button"
+                      onClick={() => toggleFactExpansion(dim.key)}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'var(--color-brand)',
+                        fontSize: '0.72rem',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        padding: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.3rem',
+                      }}
+                    >
+                      <span>{isExpanded ? 'Hide Evidence' : 'View Evidence'}</span>
+                      {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                    </button>
+
+                    {isExpanded && (
+                      <div style={{ marginTop: '0.4rem', padding: '0.5rem', background: '#ffffff', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)', fontSize: '0.72rem' }}>
+                        {evalData?.observed_from_source && (
+                          <div style={{ marginBottom: '0.3rem' }}>
+                            <span style={{ color: 'var(--color-brand)', fontWeight: 600, display: 'block' }}>Observed Source Evidence:</span>
+                            <span style={{ color: 'var(--text-secondary)' }}>{evalData.observed_from_source}</span>
+                          </div>
+                        )}
+                        {evalData?.model_interpretation && (
+                          <div>
+                            <span style={{ color: 'var(--color-openfda)', fontWeight: 600, display: 'block' }}>Analysis Interpretation:</span>
+                            <span style={{ color: 'var(--text-secondary)' }}>{evalData.model_interpretation}</span>
                           </div>
                         )}
                       </div>
                     )}
                   </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Traceability & Audit Trail Toggle Button */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid var(--border-subtle)', paddingTop: '0.75rem' }}>
-            <button
-              type="button"
-              onClick={() => setShowTraceabilityDetails(!showTraceabilityDetails)}
-              className="btn btn-secondary"
-              style={{ fontSize: '0.76rem', padding: '0.35rem 0.75rem' }}
-            >
-              <Layers size={12} /> {showTraceabilityDetails ? 'Hide Audit Traceability' : 'View Audit Traceability'}
-            </button>
-          </div>
-
-          {/* Expanded Audit Traceability Section */}
-          {showTraceabilityDetails && (
-            <div style={{ marginTop: '0.75rem', padding: '0.85rem', background: 'var(--bg-surface-elevated)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
-              <div style={{ fontWeight: '600', color: '#fff', fontSize: '0.84rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <FileText size={14} color="var(--color-brand)" /> Traceable Source & Target Provenance (Two-Tier Audit Trail)
+                )}
               </div>
-              <div className="grid-2" style={{ gap: '0.8rem', fontSize: '0.76rem' }}>
-                <div>
-                  <span style={{ color: 'var(--color-brand)', fontWeight: '600', display: 'block', marginBottom: '0.3rem' }}>
-                    Target Internal Draft
-                  </span>
-                  <div style={{ color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                    <span>Document: <strong>{targetFacts?.target_document_name || targetSection?.document_name || 'Draft Label'}</strong></span>
-                    <span>Document ID: <code>{targetFacts?.target_document_id || targetSection?.document_id || 'Not specified'}</code></span>
-                    <span>Content ID: <code>{targetFacts?.target_content_id || targetSection?.content_id || 'Not specified'}</code></span>
-                    <span>Section: <strong>{targetFacts?.target_section || targetSection?.section || 'Not specified'}</strong></span>
-                    {targetFacts?.target_subsection && <span>Subsection: {targetFacts.target_subsection}</span>}
-                    {targetFacts?.target_location && <span>Location: {targetFacts.target_location}</span>}
-                    {targetFacts?.target_page !== undefined && targetFacts?.target_page !== null && <span>Page: {targetFacts.target_page}</span>}
-                  </div>
-                </div>
+            );
+          })}
+        </div>
+      </div>
 
-                <div>
-                  <span style={{ color: 'var(--color-dailymed)', fontWeight: '600', display: 'block', marginBottom: '0.3rem' }}>
-                    Candidate Authoritative Source
-                  </span>
-                  <div style={{ color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                    <span>Source: <strong>{observedFacts?.source || selectedCandidate?.source || 'External Authority'}</strong></span>
-                    <span>Document: <strong>{observedFacts?.document_name || selectedCandidate?.document_name || 'Regulatory Reference'}</strong></span>
-                    <span>Source ID: <code>{observedFacts?.source_identifier || selectedCandidate?.source_identifier || 'Not specified'}</code></span>
-                    <span>Content ID: <code>{observedFacts?.content_id || selectedCandidate?.content_id || 'Not specified'}</code></span>
-                    <span>Section: <strong>{observedFacts?.section || selectedCandidate?.section || 'Not specified'}</strong></span>
-                    {observedFacts?.location && <span>Location: {observedFacts.location}</span>}
-                    {observedFacts?.page !== undefined && observedFacts?.page !== null && <span>Page: {observedFacts.page}</span>}
-                    {observedFacts?.cross_sources && observedFacts.cross_sources.length > 1 && (
-                      <span>Corroboration: <strong>{observedFacts.cross_sources.join(', ')}</strong></span>
-                    )}
-                    {(observedFacts?.source_url || selectedCandidate?.source_url) && (
-                      <a
-                        href={observedFacts?.source_url || selectedCandidate?.source_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="trace-link"
-                        style={{ marginTop: '0.3rem' }}
-                      >
-                        <ExternalLink size={11} /> Open Authority Record
-                      </a>
-                    )}
-                  </div>
-                </div>
-              </div>
+      {/* Detected Differences (if any exist) */}
+      {differences.length > 0 && (
+        <div className="card" style={{ marginBottom: '1.5rem' }}>
+          <div className="card-header">
+            <div>
+              <span className="card-title">
+                <AlertCircle size={16} color="var(--color-warning)" /> Detected Differences ({differences.length})
+              </span>
+              <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                Specific distinctions identified between current draft and reference
+              </span>
             </div>
-          )}
-        </div>
-      ) : (
-        /* Empty State before comparison run */
-        <div className="card" style={{ marginBottom: '1.5rem', textAlign: 'center', padding: '2rem 1rem' }}>
-          <Sliders size={28} color="var(--color-brand)" style={{ opacity: 0.6, marginBottom: '0.5rem' }} />
-          <h3 style={{ fontSize: '1rem', color: '#fff', marginBottom: '0.25rem' }}>
-            Six-Dimensional Comparison Pending
-          </h3>
-          <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', maxWidth: '520px', margin: '0 auto 1rem auto' }}>
-            Select a candidate reference above and click <strong>"Run Six-Dimensional Comparison"</strong> to evaluate alignment across Meaning, Template, Context, Structure, Format, and Key Information.
-          </p>
-        </div>
-      )}
-
-      {/* 4. Detected Differences & Decision Proceed Section */}
-      <div className="card">
-        <div className="card-header">
-          <div>
-            <span className="card-title">
-              <AlertCircle size={16} color="var(--color-warning)" /> Detected Differences & Distinctions ({differences.length})
-            </span>
-            <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'block', marginTop: '0.2rem' }}>
-              Organized by regulatory dimension for rigorous human-in-the-loop review
-            </span>
+            <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => setSelectedDimensionFilter('all')}
+                className={`badge ${selectedDimensionFilter === 'all' ? 'badge-section' : ''}`}
+                style={{ cursor: 'pointer', border: '1px solid var(--border-subtle)', background: selectedDimensionFilter === 'all' ? 'var(--bg-surface-elevated)' : 'transparent' }}
+              >
+                All ({differences.length})
+              </button>
+              {DIMENSIONS.map((dim) => {
+                const count = diffCounts[dim.key] || 0;
+                if (count === 0 && selectedDimensionFilter !== dim.key) return null;
+                const isActive = selectedDimensionFilter === dim.key;
+                return (
+                  <button
+                    key={dim.key}
+                    type="button"
+                    onClick={() => setSelectedDimensionFilter(dim.key)}
+                    className="badge"
+                    style={{ cursor: 'pointer', border: isActive ? '1px solid var(--color-brand)' : '1px solid var(--border-subtle)', color: isActive ? 'var(--color-brand)' : 'var(--text-secondary)' }}
+                  >
+                    {dim.name} ({count})
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              const el = document.getElementById('decision-station');
-              if (el) el.scrollIntoView({ behavior: 'smooth' });
-            }}
-            className="btn btn-primary"
-            style={{ fontSize: '0.82rem', padding: '0.4rem 0.85rem' }}
-          >
-            Record Regulatory Decision <ArrowRight size={13} />
-          </button>
-        </div>
-
-        {/* Dimension Filter Tabs for Differences */}
-        {differences.length > 0 && (
-          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-            <button
-              type="button"
-              onClick={() => setSelectedDimensionFilter('all')}
-              className={`badge ${selectedDimensionFilter === 'all' ? 'badge-section' : ''}`}
-              style={{
-                cursor: 'pointer',
-                border: selectedDimensionFilter === 'all' ? '1px solid var(--color-brand)' : '1px solid var(--border-subtle)',
-                background: selectedDimensionFilter === 'all' ? 'var(--bg-surface-elevated)' : 'transparent',
-                color: selectedDimensionFilter === 'all' ? '#fff' : 'var(--text-secondary)',
-                padding: '0.3rem 0.6rem',
-              }}
-            >
-              All ({differences.length})
-            </button>
-
-            {DIMENSIONS.map((dim) => {
-              const count = diffCounts[dim.key] || 0;
-              if (count === 0 && selectedDimensionFilter !== dim.key) return null;
-              const isActive = selectedDimensionFilter === dim.key;
-
-              return (
-                <button
-                  key={dim.key}
-                  type="button"
-                  onClick={() => setSelectedDimensionFilter(dim.key)}
-                  className="badge"
-                  style={{
-                    cursor: 'pointer',
-                    border: isActive ? '1px solid var(--color-brand)' : '1px solid var(--border-subtle)',
-                    background: isActive ? 'var(--bg-surface-elevated)' : 'transparent',
-                    color: isActive ? 'var(--color-brand)' : 'var(--text-secondary)',
-                    padding: '0.3rem 0.6rem',
-                  }}
-                >
-                  {dim.name} ({count})
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Differences List */}
-        {differences.length === 0 ? (
-          <div className="empty-state">
-            <p>
-              Click <strong>"Run Six-Dimensional Comparison"</strong> to execute difference detection across key dosage metrics, structure, and clinical phrasing.
-            </p>
-          </div>
-        ) : filteredDifferences.length === 0 ? (
-          <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
-            No differences found originating from the {selectedDimensionFilter} dimension.
-          </div>
-        ) : (
-          <div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
             {filteredDifferences.map((diff, idx) => (
-              <div key={diff.difference_id || idx} className="result-item">
-                <div className="result-title">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                    <span style={{ textTransform: 'capitalize' }}>
-                      {(diff.attribute || diff.aspect || 'aspect').replace('_', ' ')} distinction
-                    </span>
+              <div key={diff.difference_id || idx} className="result-item" style={{ padding: '0.75rem' }}>
+                <div className="result-title" style={{ marginBottom: '0.35rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+                    <strong style={{ fontSize: '0.84rem' }}>{(diff.attribute || diff.aspect || 'Attribute').replace('_', ' ')}</strong>
                     {diff.source_dimension && (
-                      <span className="badge badge-section" style={{ textTransform: 'capitalize', fontSize: '0.72rem' }}>
-                        Dimension: {diff.source_dimension.replace('_', ' ')}
+                      <span className="badge badge-section" style={{ fontSize: '0.7rem' }}>
+                        {diff.source_dimension}
                       </span>
                     )}
                     <span
                       className="badge"
                       style={{
-                        background:
-                          diff.regulatory_impact === 'MAJOR'
-                            ? 'rgba(239, 68, 68, 0.2)'
-                            : 'rgba(245, 158, 11, 0.15)',
-                        color:
-                          diff.regulatory_impact === 'MAJOR'
-                            ? 'var(--color-danger)'
-                            : 'var(--color-warning)',
+                        fontSize: '0.7rem',
+                        background: diff.regulatory_impact === 'MAJOR' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(245, 158, 11, 0.12)',
+                        color: diff.regulatory_impact === 'MAJOR' ? 'var(--color-danger)' : 'var(--color-warning)',
                       }}
                     >
                       {diff.regulatory_impact || 'REVIEW'} IMPACT
                     </span>
                   </div>
-                  <span className="badge badge-section">{diff.difference_type || 'modification'}</span>
                 </div>
 
-                <p style={{ fontSize: '0.85rem', color: 'var(--text-primary)', marginBottom: '0.5rem', lineHeight: 1.45 }}>
+                <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: '0 0 0.5rem 0', lineHeight: 1.45 }}>
                   {diff.explanation}
                 </p>
 
                 <div className="grid-2" style={{ gap: '0.5rem' }}>
                   {diff.current_value && (
-                    <div
-                      style={{
-                        background: 'rgba(239, 68, 68, 0.08)',
-                        padding: '0.5rem',
-                        borderRadius: 'var(--radius-sm)',
-                        border: '1px solid rgba(239, 68, 68, 0.2)',
-                      }}
-                    >
-                      <span style={{ fontSize: '0.72rem', color: '#f87171', display: 'block' }}>Current Value</span>
-                      <code style={{ fontSize: '0.8rem', color: '#fff' }}>{diff.current_value}</code>
+                    <div style={{ background: 'rgba(239, 68, 68, 0.06)', padding: '0.45rem', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+                      <span style={{ fontSize: '0.68rem', color: 'var(--color-danger)', display: 'block' }}>Current Draft Value:</span>
+                      <code style={{ fontSize: '0.78rem' }}>{diff.current_value}</code>
                     </div>
                   )}
                   {diff.candidate_value && (
-                    <div
-                      style={{
-                        background: 'rgba(16, 185, 129, 0.08)',
-                        padding: '0.5rem',
-                        borderRadius: 'var(--radius-sm)',
-                        border: '1px solid rgba(16, 185, 129, 0.2)',
-                      }}
-                    >
-                      <span style={{ fontSize: '0.72rem', color: '#34d399', display: 'block' }}>Candidate Value</span>
-                      <code style={{ fontSize: '0.8rem', color: '#fff' }}>{diff.candidate_value}</code>
+                    <div style={{ background: 'rgba(21, 128, 61, 0.06)', padding: '0.45rem', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(21, 128, 61, 0.2)' }}>
+                      <span style={{ fontSize: '0.68rem', color: 'var(--color-success)', display: 'block' }}>Candidate Reference Value:</span>
+                      <code style={{ fontSize: '0.78rem' }}>{diff.candidate_value}</code>
                     </div>
                   )}
                 </div>
-
-                {diff.reviewer_attention_required && (
-                  <div style={{ marginTop: '0.4rem', fontSize: '0.73rem', color: 'var(--color-warning)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                    <ShieldAlert size={12} /> Human regulatory professional review required
-                  </div>
-                )}
               </div>
             ))}
           </div>
-        )}
+        </div>
+      )}
 
-      </div>
-
-      {/* 5. Regulatory Governance Decision Station (Consolidated in Phase 6G.5) */}
-      <div id="decision-station" className="card" style={{ marginTop: '1.5rem', borderTop: '2px solid var(--color-brand)' }}>
+      {/* 6. Human Decision Station — PROMINENT */}
+      <div id="decision-station" className="card" style={{ marginBottom: '1.5rem', border: '2px solid var(--color-brand)' }}>
         <div className="card-header">
           <div>
             <span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-              <ShieldCheck size={18} color="var(--color-brand)" /> Regulatory Governance Decision Station
+              <ShieldCheck size={18} color="var(--color-brand)" /> Your Decision
             </span>
-            <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0 0' }}>
-              Sole human regulatory professional authorization: Review 6D evidence and mandate Reuse, Adapt, or Reject
+            <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0 0' }}>
+              The recommendation is advisory. Please review the evidence and record the final decision.
             </p>
           </div>
           <span className="status-pill">
-            Sole Human Authorization
+            Human Decision Required
           </span>
         </div>
 
-        {/* Advisory Recommendation Context Banner */}
-        {recommendedDecision && (
-          <div
-            style={{
-              marginBottom: '1.25rem',
-              padding: '0.85rem 1.1rem',
-              background:
-                recommendedDecision === 'REUSE'
-                  ? 'rgba(21, 128, 61, 0.08)'
-                  : recommendedDecision === 'ADAPT'
-                  ? 'rgba(180, 83, 9, 0.08)'
-                  : 'rgba(185, 28, 28, 0.08)',
-              border: `1.5px solid ${
-                recommendedDecision === 'REUSE'
-                  ? 'rgba(21, 128, 61, 0.35)'
-                  : recommendedDecision === 'ADAPT'
-                  ? 'rgba(180, 83, 9, 0.35)'
-                  : 'rgba(185, 28, 28, 0.35)'
-              }`,
-              borderRadius: 'var(--radius-md)',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem', flexWrap: 'wrap', gap: '0.4rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <span
-                  className="badge"
-                  style={{
-                    fontSize: '0.76rem',
-                    fontWeight: '700',
-                    padding: '0.2rem 0.55rem',
-                    background:
-                      recommendedDecision === 'REUSE'
-                        ? 'rgba(21, 128, 61, 0.18)'
-                        : recommendedDecision === 'ADAPT'
-                        ? 'rgba(180, 83, 9, 0.18)'
-                        : 'rgba(185, 28, 28, 0.18)',
-                    color:
-                      recommendedDecision === 'REUSE'
-                        ? 'var(--color-success)'
-                        : recommendedDecision === 'ADAPT'
-                        ? 'var(--color-warning)'
-                        : 'var(--color-danger)',
-                  }}
-                >
-                  {recommendedDecision}
-                </span>
-                <strong style={{ fontSize: '0.88rem', color: 'var(--text-primary)' }}>
-                  ADVISORY RECOMMENDATION — HUMAN GOVERNANCE REQUIRED
-                </strong>
-              </div>
-              {recommendationConfidence !== null && recommendationConfidence !== undefined && (
-                <span
-                  style={{
-                    fontSize: '0.74rem',
-                    color: 'var(--text-secondary)',
-                    fontWeight: '600',
-                    background: 'var(--bg-surface)',
-                    padding: '0.2rem 0.5rem',
-                    borderRadius: 'var(--radius-sm)',
-                    border: '1px solid var(--border-subtle)',
-                  }}
-                >
-                  Advisory Confidence: {Math.round(recommendationConfidence * 100)}%
-                </span>
-              )}
-            </div>
-
-            {recommendationReason && (
-              <p style={{ fontSize: '0.82rem', color: 'var(--text-primary)', margin: '0.3rem 0', lineHeight: 1.45 }}>
-                {recommendationReason}
-              </p>
-            )}
-
-            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block' }}>
-              Advisory output only. You must evaluate clinical alignment independently and deliberately select your decision below. You may adopt or override this recommendation.
-            </span>
-          </div>
-        )}
-
-        {/* Decision Option Buttons: Explicit Human Selection */}
-        <div style={{ marginBottom: '1.5rem' }}>
-          <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.6rem', fontWeight: '500' }}>
-            Select Controlled Action * <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>(No default preselection; deliberate human choice required)</span>
+        {/* 3 Decision Choice Cards */}
+        <div style={{ marginBottom: '1.25rem' }}>
+          <label style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: '0.5rem' }}>
+            Select Action *
           </label>
-          <div className="grid-3">
+
+          <div className="grid-3" style={{ gap: '0.85rem' }}>
+            {/* REUSE Option */}
             <button
               type="button"
               onClick={() => {
                 setSelectedDecision('REUSE');
                 setDecisionValidationError(null);
               }}
-              className={`btn ${selectedDecision === 'REUSE' ? 'btn-reuse' : 'btn-secondary'}`}
               style={{
+                display: 'flex',
                 flexDirection: 'column',
-                padding: '1.1rem',
-                borderWidth: selectedDecision === 'REUSE' ? '2px' : '1px',
-                borderColor: selectedDecision === 'REUSE' ? 'var(--color-success)' : 'var(--border-subtle)',
-                position: 'relative',
+                alignItems: 'center',
+                textAlign: 'center',
+                padding: '1.25rem 1rem',
+                borderRadius: 'var(--radius-md)',
+                background: selectedDecision === 'REUSE' ? 'rgba(21, 128, 61, 0.08)' : '#ffffff',
+                border: selectedDecision === 'REUSE' ? '2px solid var(--color-success)' : '1px solid var(--border-subtle)',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
               }}
             >
               {recommendedDecision === 'REUSE' && (
-                <span
-                  className="badge"
-                  style={{
-                    fontSize: '0.68rem',
-                    fontWeight: '700',
-                    background: 'rgba(21, 128, 61, 0.18)',
-                    color: 'var(--color-success)',
-                    border: '1px solid rgba(21, 128, 61, 0.35)',
-                    marginBottom: '0.35rem',
-                  }}
-                >
-                  System Recommended
+                <span className="badge" style={{ fontSize: '0.68rem', background: 'rgba(21, 128, 61, 0.15)', color: 'var(--color-success)', marginBottom: '0.4rem' }}>
+                  Advisory Recommendation
                 </span>
               )}
-              <CheckCircle2 size={24} color={selectedDecision === 'REUSE' ? 'var(--color-success)' : 'var(--text-muted)'} />
-              <strong style={{ marginTop: '0.4rem', fontSize: '1rem' }}>REUSE</strong>
-              <span style={{ fontSize: '0.72rem', opacity: 0.85, textAlign: 'center', marginTop: '0.2rem' }}>
+              <CheckCircle2 size={26} color={selectedDecision === 'REUSE' ? 'var(--color-success)' : 'var(--text-muted)'} />
+              <strong style={{ fontSize: '1.05rem', color: selectedDecision === 'REUSE' ? 'var(--color-success)' : 'var(--text-primary)', marginTop: '0.4rem' }}>
+                REUSE
+              </strong>
+              <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.25rem', lineHeight: 1.35 }}>
                 Direct adoption of validated external regulatory standard
               </span>
             </button>
 
+            {/* ADAPT Option */}
             <button
               type="button"
               onClick={() => {
                 setSelectedDecision('ADAPT');
                 setDecisionValidationError(null);
               }}
-              className={`btn ${selectedDecision === 'ADAPT' ? 'btn-adapt' : 'btn-secondary'}`}
               style={{
+                display: 'flex',
                 flexDirection: 'column',
-                padding: '1.1rem',
-                borderWidth: selectedDecision === 'ADAPT' ? '2px' : '1px',
-                borderColor: selectedDecision === 'ADAPT' ? 'var(--color-warning)' : 'var(--border-subtle)',
-                position: 'relative',
+                alignItems: 'center',
+                textAlign: 'center',
+                padding: '1.25rem 1rem',
+                borderRadius: 'var(--radius-md)',
+                background: selectedDecision === 'ADAPT' ? 'rgba(180, 83, 9, 0.08)' : '#ffffff',
+                border: selectedDecision === 'ADAPT' ? '2px solid var(--color-warning)' : '1px solid var(--border-subtle)',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
               }}
             >
               {recommendedDecision === 'ADAPT' && (
-                <span
-                  className="badge"
-                  style={{
-                    fontSize: '0.68rem',
-                    fontWeight: '700',
-                    background: 'rgba(180, 83, 9, 0.18)',
-                    color: 'var(--color-warning)',
-                    border: '1px solid rgba(180, 83, 9, 0.35)',
-                    marginBottom: '0.35rem',
-                  }}
-                >
-                  System Recommended
+                <span className="badge" style={{ fontSize: '0.68rem', background: 'rgba(180, 83, 9, 0.15)', color: 'var(--color-warning)', marginBottom: '0.4rem' }}>
+                  Advisory Recommendation
                 </span>
               )}
-              <Sliders size={24} color={selectedDecision === 'ADAPT' ? 'var(--color-warning)' : 'var(--text-muted)'} />
-              <strong style={{ marginTop: '0.4rem', fontSize: '1rem' }}>ADAPT</strong>
-              <span style={{ fontSize: '0.72rem', opacity: 0.85, textAlign: 'center', marginTop: '0.2rem' }}>
+              <Sliders size={26} color={selectedDecision === 'ADAPT' ? 'var(--color-warning)' : 'var(--text-muted)'} />
+              <strong style={{ fontSize: '1.05rem', color: selectedDecision === 'ADAPT' ? 'var(--color-warning)' : 'var(--text-primary)', marginTop: '0.4rem' }}>
+                ADAPT
+              </strong>
+              <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.25rem', lineHeight: 1.35 }}>
                 Modify candidate with product-specific clinical adaptations
               </span>
             </button>
 
+            {/* REJECT Option */}
             <button
               type="button"
               onClick={() => {
                 setSelectedDecision('REJECT');
                 setDecisionValidationError(null);
               }}
-              className={`btn ${selectedDecision === 'REJECT' ? 'btn-reject' : 'btn-secondary'}`}
               style={{
+                display: 'flex',
                 flexDirection: 'column',
-                padding: '1.1rem',
-                borderWidth: selectedDecision === 'REJECT' ? '2px' : '1px',
-                borderColor: selectedDecision === 'REJECT' ? 'var(--color-danger)' : 'var(--border-subtle)',
-                position: 'relative',
+                alignItems: 'center',
+                textAlign: 'center',
+                padding: '1.25rem 1rem',
+                borderRadius: 'var(--radius-md)',
+                background: selectedDecision === 'REJECT' ? 'rgba(185, 28, 28, 0.08)' : '#ffffff',
+                border: selectedDecision === 'REJECT' ? '2px solid var(--color-danger)' : '1px solid var(--border-subtle)',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
               }}
             >
               {recommendedDecision === 'REJECT' && (
-                <span
-                  className="badge"
-                  style={{
-                    fontSize: '0.68rem',
-                    fontWeight: '700',
-                    background: 'rgba(185, 28, 28, 0.18)',
-                    color: 'var(--color-danger)',
-                    border: '1px solid rgba(185, 28, 28, 0.35)',
-                    marginBottom: '0.35rem',
-                  }}
-                >
-                  System Recommended
+                <span className="badge" style={{ fontSize: '0.68rem', background: 'rgba(185, 28, 28, 0.15)', color: 'var(--color-danger)', marginBottom: '0.4rem' }}>
+                  Advisory Recommendation
                 </span>
               )}
-              <XCircle size={24} color={selectedDecision === 'REJECT' ? 'var(--color-danger)' : 'var(--text-muted)'} />
-              <strong style={{ marginTop: '0.4rem', fontSize: '1rem' }}>REJECT</strong>
-              <span style={{ fontSize: '0.72rem', opacity: 0.85, textAlign: 'center', marginTop: '0.2rem' }}>
+              <XCircle size={26} color={selectedDecision === 'REJECT' ? 'var(--color-danger)' : 'var(--text-muted)'} />
+              <strong style={{ fontSize: '1.05rem', color: selectedDecision === 'REJECT' ? 'var(--color-danger)' : 'var(--text-primary)', marginTop: '0.4rem' }}>
+                REJECT
+              </strong>
+              <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.25rem', lineHeight: 1.35 }}>
                 Decline candidate; retain current internal document wording
               </span>
             </button>
           </div>
         </div>
 
-        {/* Adaptation Guidance (Mandatory when ADAPT selected) */}
+        {/* 7. ADAPT FLOW: Instructions Input */}
         {selectedDecision === 'ADAPT' && (
-          <div style={{ marginBottom: '1.25rem', background: 'rgba(245, 158, 11, 0.08)', padding: '1rem', borderRadius: 'var(--radius-md)', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
-            {/* Phase 6G.3: Advisory Proposed Wording Box */}
-            {proposedAdaptedText && (
-              <div
-                style={{
-                  marginBottom: '1rem',
-                  padding: '0.85rem 1rem',
-                  background: 'var(--bg-surface)',
-                  borderRadius: 'var(--radius-sm)',
-                  border: '1px solid rgba(245, 158, 11, 0.35)',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.45rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-                  <div>
-                    <strong style={{ fontSize: '0.82rem', color: '#fbbf24', display: 'block' }}>
-                      System Proposed Wording (Advisory Proposal)
-                    </strong>
-                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                      Advisory starting draft grounded in 6D comparison evidence. You may adopt, edit, or replace this wording.
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAdaptationInstructions(proposedAdaptedText);
-                      setDecisionValidationError(null);
-                    }}
-                    className="btn btn-secondary"
-                    style={{
-                      fontSize: '0.76rem',
-                      padding: '0.35rem 0.75rem',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.35rem',
-                      color: 'var(--color-warning)',
-                      borderColor: 'rgba(245, 158, 11, 0.4)',
-                    }}
-                  >
-                    <FileText size={13} /> Use Proposed Wording as Instructions
-                  </button>
-                </div>
-
-                <div
-                  style={{
-                    fontSize: '0.84rem',
-                    color: 'var(--text-primary)',
-                    lineHeight: 1.45,
-                    padding: '0.6rem 0.75rem',
-                    background: 'var(--bg-main)',
-                    borderRadius: 'var(--radius-sm)',
-                    border: '1px solid var(--border-subtle)',
-                    whiteSpace: 'pre-wrap',
-                  }}
+          <div style={{ marginBottom: '1.25rem', background: 'rgba(245, 158, 11, 0.06)', padding: '1rem', borderRadius: 'var(--radius-md)', border: '1px solid rgba(245, 158, 11, 0.25)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+              <label style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--color-warning)' }}>
+                Adaptation Instructions *
+              </label>
+              {proposedAdaptedText && !adaptationInstructions && (
+                <button
+                  type="button"
+                  onClick={() => setAdaptationInstructions(proposedAdaptedText)}
+                  className="btn btn-secondary"
+                  style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem', color: 'var(--color-warning)' }}
                 >
-                  {proposedAdaptedText}
-                </div>
-
-                {adaptationRationale && (
-                  <div style={{ marginTop: '0.45rem' }}>
-                    <span style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', fontWeight: '600' }}>
-                      Adaptation Rationale:{' '}
-                    </span>
-                    <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                      {adaptationRationale}
-                    </span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <label style={{ fontSize: '0.82rem', color: '#fbbf24', display: 'block', marginBottom: '0.4rem', fontWeight: '600' }}>
-              Adaptation Instructions & Specific Changes *
-            </label>
+                  Prefill with Advisory Proposal
+                </button>
+              )}
+            </div>
             <textarea
               className="input-text"
               rows={3}
-              placeholder="Specify clinical adjustments (e.g., adjust maximum daily dose to 3000 mg for pediatric subset or align contraindications)..."
+              placeholder="Specify clinical adjustments (e.g., adjust dosage range for renal impairment or align pediatric warning)..."
               value={adaptationInstructions}
               onChange={(e) => {
                 setAdaptationInstructions(e.target.value);
                 setDecisionValidationError(null);
               }}
-              style={{ width: '100%' }}
+              style={{ width: '100%', fontSize: '0.84rem' }}
             />
-            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block', marginTop: '0.3rem' }}>
-              Reviewer instructions recorded here become the authorized directives for downstream change formulation.
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block', marginTop: '0.25rem' }}>
+              Instructions recorded here guide downstream document changes.
             </span>
           </div>
         )}
 
-        {/* Reviewer Information */}
-        <div style={{ marginBottom: '1.25rem' }}>
-          <label style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.3rem', fontWeight: '500' }}>
-            Reviewer Name & Regulatory Authority Title *
-          </label>
-          <input
-            type="text"
-            className="input-text"
-            placeholder="e.g., Dr. Jane Doe, Senior Regulatory Affairs Specialist"
-            value={reviewerName}
-            onChange={(e) => {
-              setReviewerName(e.target.value);
-              setDecisionValidationError(null);
-            }}
-            style={{ width: '100%' }}
-          />
+        {/* Reviewer Details (Name & Rationale) */}
+        <div className="grid-2" style={{ gap: '0.85rem', marginBottom: '1.25rem' }}>
+          <div>
+            <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: '0.3rem' }}>
+              Reviewer Name & Title *
+            </label>
+            <input
+              type="text"
+              className="input-text"
+              placeholder="e.g. Dr. Jane Doe, Senior Regulatory Specialist"
+              value={reviewerName}
+              onChange={(e) => {
+                setReviewerName(e.target.value);
+                setDecisionValidationError(null);
+              }}
+              style={{ width: '100%' }}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: '0.3rem' }}>
+              Professional Rationale / Clinical Justification *
+            </label>
+            <textarea
+              className="input-text"
+              rows={2}
+              placeholder="Document regulatory reasoning supporting your decision..."
+              value={reviewerNotes}
+              onChange={(e) => {
+                setReviewerNotes(e.target.value);
+                setDecisionValidationError(null);
+              }}
+              style={{ width: '100%', fontSize: '0.84rem' }}
+            />
+          </div>
         </div>
 
-        {/* Reviewer Clinical Notes / Justification: Mandatory for all decisions */}
-        <div style={{ marginBottom: '1.5rem' }}>
-          <label style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.3rem', fontWeight: '500' }}>
-            Professional Rationale / Clinical Justification *
-          </label>
-          <textarea
-            className="input-text"
-            rows={4}
-            placeholder="Document clinical and regulatory justification supporting this decision based on comparison evidence..."
-            value={reviewerNotes}
-            onChange={(e) => {
-              setReviewerNotes(e.target.value);
-              setDecisionValidationError(null);
-            }}
-            style={{ width: '100%' }}
-          />
-        </div>
-
-        {/* Inline Validation Error Banner */}
+        {/* Validation Error Banner */}
         {decisionValidationError && (
-          <div
-            style={{
-              marginBottom: '1.25rem',
-              padding: '0.75rem 1rem',
-              background: 'rgba(239, 68, 68, 0.12)',
-              border: '1px solid rgba(239, 68, 68, 0.3)',
-              borderRadius: 'var(--radius-sm)',
-              color: '#fca5a5',
-              fontSize: '0.84rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-            }}
-          >
-            <AlertCircle size={16} color="var(--color-danger)" style={{ flexShrink: 0 }} />
+          <div style={{ marginBottom: '1rem', padding: '0.7rem 0.9rem', background: 'rgba(239, 68, 68, 0.12)', border: '1px solid var(--color-danger)', borderRadius: 'var(--radius-sm)', color: '#b91c1c', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <AlertCircle size={16} />
             <span>{decisionValidationError}</span>
           </div>
         )}
 
         {/* Submission Error Banner */}
         {decisionSubmitError && (
-          <div
-            style={{
-              marginBottom: '1.25rem',
-              padding: '0.75rem 1rem',
-              background: 'rgba(239, 68, 68, 0.12)',
-              border: '1px solid rgba(239, 68, 68, 0.3)',
-              borderRadius: 'var(--radius-sm)',
-              color: '#fca5a5',
-              fontSize: '0.84rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-            }}
-          >
-            <AlertCircle size={16} color="var(--color-danger)" style={{ flexShrink: 0 }} />
+          <div style={{ marginBottom: '1rem', padding: '0.7rem 0.9rem', background: 'rgba(239, 68, 68, 0.12)', border: '1px solid var(--color-danger)', borderRadius: 'var(--radius-sm)', color: '#b91c1c', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <AlertCircle size={16} />
             <span>{decisionSubmitError}</span>
           </div>
         )}
 
         {/* Recorded Confirmation Block */}
         {recordedDecision && (
-          <div
-            style={{
-              marginBottom: '1.5rem',
-              padding: '1rem',
-              background: 'rgba(16, 185, 129, 0.1)',
-              border: '1px solid rgba(16, 185, 129, 0.35)',
-              borderRadius: 'var(--radius-md)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-              <span style={{ color: 'var(--color-success)', fontWeight: '600', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <CheckCircle2 size={18} /> Human Decision Recorded Successfully
-              </span>
+          <div style={{ marginBottom: '1.25rem', padding: '1rem', background: 'rgba(21, 128, 61, 0.08)', border: '1px solid rgba(21, 128, 61, 0.3)', borderRadius: 'var(--radius-md)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--color-success)', fontWeight: 600, fontSize: '0.9rem' }}>
+                <CheckCircle2 size={18} /> Decision Recorded Successfully
+              </div>
               <span className="badge" style={getStatusStyle('MATCH')}>
                 {recordedDecision.decision} AUTHORIZED
               </span>
             </div>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-              <span>Decision ID: <code style={{ color: '#fff' }}>{recordedDecision.decision_id}</code></span>
-              <span>Timestamp: <strong>{new Date(recordedDecision.decided_at).toLocaleString()}</strong></span>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+              <span>Decision ID: <code>{recordedDecision.decision_id}</code></span>
               <span>Authorizing Reviewer: <strong>{recordedDecision.reviewer_name}</strong></span>
               {recordedDecision.reviewer_notes && <span>Rationale: {recordedDecision.reviewer_notes}</span>}
-              {recordedDecision.adaptation_instructions && (
-                <span>Adaptation Instructions: {recordedDecision.adaptation_instructions}</span>
-              )}
+              {recordedDecision.adaptation_instructions && <span>Instructions: {recordedDecision.adaptation_instructions}</span>}
             </div>
 
             <div style={{ marginTop: '0.75rem', display: 'flex', justifyContent: 'flex-end' }}>
@@ -2043,12 +1389,12 @@ export default function CandidateComparison({
           </div>
         )}
 
-        {/* Decision Submission Action Bar */}
+        {/* Decision Submission Button */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
           <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
             {!selectedDecision
               ? 'Select an action above to enable authorization'
-              : `Action selected: ${selectedDecision}`}
+              : `Selected: ${selectedDecision} (Click to record)`}
           </span>
 
           <button
@@ -2056,11 +1402,65 @@ export default function CandidateComparison({
             onClick={handleSubmitDecision}
             className="btn btn-primary"
             disabled={!selectedDecision || submittingDecision || !targetContentId || !candidateId}
-            style={{ fontSize: '0.86rem', padding: '0.55rem 1.15rem' }}
+            style={{ fontSize: '0.88rem', padding: '0.6rem 1.3rem', fontWeight: 600 }}
           >
             <Send size={14} /> {submittingDecision ? 'Recording Decision...' : 'Authorize & Record Decision'}
           </button>
         </div>
+      </div>
+
+      {/* 9. Technical Details (Secondary & Expandable) */}
+      <div className="card" style={{ background: 'var(--bg-surface)' }}>
+        <div
+          onClick={() => setShowTraceabilityDetails(!showTraceabilityDetails)}
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            cursor: 'pointer',
+            userSelect: 'none',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+            {showTraceabilityDetails ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+            <span>View Technical & Audit Traceability Details</span>
+          </div>
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+            Session ID: <code>{analysisResult?.comparison_id || 'N/A'}</code>
+          </span>
+        </div>
+
+        {showTraceabilityDetails && (
+          <div style={{ marginTop: '1rem', paddingTop: '0.85rem', borderTop: '1px solid var(--border-subtle)', fontSize: '0.76rem' }}>
+            <div className="grid-2" style={{ gap: '1rem' }}>
+              <div style={{ background: 'var(--bg-surface-elevated)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
+                <strong style={{ color: 'var(--color-brand)', display: 'block', marginBottom: '0.35rem' }}>
+                  Target Content Provenance
+                </strong>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', color: 'var(--text-secondary)' }}>
+                  <span>Document ID: <code>{targetFacts?.target_document_id || targetSection?.document_id || 'N/A'}</code></span>
+                  <span>Content ID: <code>{targetFacts?.target_content_id || targetSection?.content_id || 'N/A'}</code></span>
+                  <span>Section: <strong>{targetFacts?.target_section || targetSection?.section || 'N/A'}</strong></span>
+                  {targetFacts?.target_page !== undefined && targetFacts?.target_page !== null && <span>Page: {targetFacts.target_page}</span>}
+                </div>
+              </div>
+
+              <div style={{ background: 'var(--bg-surface-elevated)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
+                <strong style={{ color: 'var(--color-dailymed)', display: 'block', marginBottom: '0.35rem' }}>
+                  Candidate Reference Provenance
+                </strong>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', color: 'var(--text-secondary)' }}>
+                  <span>Source Identifier: <code>{observedFacts?.source_identifier || selectedCandidate?.source_identifier || 'N/A'}</code></span>
+                  <span>Content ID: <code>{observedFacts?.content_id || selectedCandidate?.content_id || 'N/A'}</code></span>
+                  <span>Section: <strong>{observedFacts?.section || selectedCandidate?.section || 'N/A'}</strong></span>
+                  {observedFacts?.cross_sources && observedFacts.cross_sources.length > 1 && (
+                    <span>Corroboration: <strong>{observedFacts.cross_sources.join(', ')}</strong></span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

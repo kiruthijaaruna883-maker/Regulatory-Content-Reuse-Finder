@@ -53,6 +53,50 @@ export default function ApprovedChangeReport({ approvedReport }) {
   const [verificationError, setVerificationError] = useState(null);
   const [expandedEventId, setExpandedEventId] = useState(null);
   const [copiedHash, setCopiedHash] = useState(null);
+  const [showAllSessionHistory, setShowAllSessionHistory] = useState(false);
+
+  // ---------------------------------------------------------------------------
+  // PART 1-4: Report-Specific Isolation & Filtering
+  // ---------------------------------------------------------------------------
+  // Authoritative decision IDs linked to the current approved report
+  const reportDecisionIds = new Set([
+    ...(report?.decision_ids || []),
+    ...(report?.changes || []).map((c) => c.decision_id).filter(Boolean),
+  ]);
+
+  // Authoritative change IDs linked to the current approved report
+  const reportChangeIds = new Set(
+    (report?.changes || []).map((c) => c.change_id).filter(Boolean)
+  );
+
+  // Part 2: Filter audit events - display ONLY events matching current report
+  const relevantAuditEvents = report
+    ? auditEvents.filter(
+        (e) =>
+          (e.report_id && e.report_id === report.report_id) ||
+          (e.change_id && reportChangeIds.has(e.change_id)) ||
+          (e.decision_id && reportDecisionIds.has(e.decision_id))
+      )
+    : auditEvents;
+
+  // Part 3: Filter decision history - display ONLY decisions associated with this report
+  const relevantDecisions = report
+    ? decisionHistory.filter((d) => reportDecisionIds.has(d.decision_id))
+    : decisionHistory;
+
+  // Part 4: Filter proposals - display ONLY proposals belonging to this report
+  const relevantProposals = report
+    ? proposals.filter(
+        (p) =>
+          (p.change_id && reportChangeIds.has(p.change_id)) ||
+          (p.decision_id && reportDecisionIds.has(p.decision_id))
+      )
+    : proposals;
+
+  // Active dataset for secondary history tab (isolated by default if report exists)
+  const displayedAuditEvents = report && !showAllSessionHistory ? relevantAuditEvents : auditEvents;
+  const displayedDecisions = report && !showAllSessionHistory ? relevantDecisions : decisionHistory;
+  const displayedProposals = report && !showAllSessionHistory ? relevantProposals : proposals;
 
   // Load session audit data on mount
   useEffect(() => {
@@ -143,6 +187,51 @@ export default function ApprovedChangeReport({ approvedReport }) {
     return map[type] || type;
   }
 
+  // Part 8: Human-friendly business labels for Regulatory Affairs users
+  function getBusinessEventLabel(type) {
+    const map = {
+      REVIEWER_DECISION_CREATED: 'Decision recorded',
+      CHANGE_PROPOSAL_CREATED: 'Change proposal created',
+      OCCURRENCES_CONFIRMED: 'Occurrences confirmed',
+      CHANGE_VALIDATED: 'Change validated',
+      CHANGE_APPROVED: 'Change approved',
+      CHANGE_REJECTED: 'Change rejected',
+      APPROVED_REPORT_CREATED: 'Approved report created',
+    };
+    return map[type] || formatEventType(type);
+  }
+
+  function getBusinessEventDescription(evt) {
+    const details = evt.details || {};
+    switch (evt.event_type) {
+      case 'REVIEWER_DECISION_CREATED':
+        return details.decision
+          ? `Reviewer recorded human determination: ${details.decision}${details.target_content_id ? ` for ${details.target_content_id}` : ''}`
+          : 'Human reviewer evaluated candidate and recorded determination';
+      case 'CHANGE_PROPOSAL_CREATED':
+        return details.section
+          ? `Controlled change proposal formulated for section "${details.section}"`
+          : 'Controlled change proposal formulated based on human decision';
+      case 'OCCURRENCES_CONFIRMED': {
+        const confirmed = details.confirmed_count ?? (details.confirmed_occurrence_ids ? details.confirmed_occurrence_ids.length : 0);
+        const excluded = details.excluded_count ?? (details.excluded_occurrence_ids ? details.excluded_occurrence_ids.length : 0);
+        return `Related occurrences evaluated: ${confirmed} confirmed, ${excluded} excluded`;
+      }
+      case 'CHANGE_VALIDATED':
+        return details.validation_passed === false
+          ? 'Validation findings identified requiring regulatory review'
+          : 'Deterministic regulatory consistency validation passed';
+      case 'CHANGE_APPROVED':
+        return `Explicit human approval authorized by ${evt.reviewer_name || 'Regulatory Approver'}`;
+      case 'CHANGE_REJECTED':
+        return `Proposal rejected by ${evt.reviewer_name || 'Regulatory Approver'}`;
+      case 'APPROVED_REPORT_CREATED':
+        return 'Approved change report compiled and sealed with complete source traceability';
+      default:
+        return evt.new_status ? `Status transition: ${evt.new_status}` : 'Workflow transition recorded';
+    }
+  }
+
   function truncateHash(hash, length = 12) {
     if (!hash) return '000000000000...';
     if (hash.length <= length + 4) return hash;
@@ -154,12 +243,16 @@ export default function ApprovedChangeReport({ approvedReport }) {
   }
 
   function handleExportJson() {
+    // Part 5: JSON Export Isolation - export strictly report-associated data when report exists
     const exportObject =
-      activeView === 'manifest' && report
+      report
         ? {
             ...report,
-            cryptographic_audit_trail: auditEvents,
+            relevant_decisions: relevantDecisions,
+            relevant_proposals: relevantProposals,
+            cryptographic_audit_trail: relevantAuditEvents,
             audit_verification: verificationResult,
+            exported_at: new Date().toISOString(),
           }
         : {
             session_audit_trail: decisionHistory,
@@ -173,7 +266,7 @@ export default function ApprovedChangeReport({ approvedReport }) {
     const downloadAnchor = document.createElement('a');
     downloadAnchor.setAttribute('href', dataStr);
     const fileName =
-      activeView === 'manifest' && report
+      report
         ? `approved_change_report_${report.report_id || 'manifest'}.json`
         : `session_decision_audit_trail_${new Date().toISOString().slice(0, 10)}.json`;
     downloadAnchor.setAttribute('download', fileName);
@@ -222,13 +315,13 @@ export default function ApprovedChangeReport({ approvedReport }) {
     }
   }
 
-  // Session governance metrics (computed STRICTLY from actual returned backend data)
-  const totalDecisions = decisionHistory.length;
-  const reuseCount = decisionHistory.filter((d) => d.decision === 'REUSE').length;
-  const adaptCount = decisionHistory.filter((d) => d.decision === 'ADAPT').length;
-  const rejectCount = decisionHistory.filter((d) => d.decision === 'REJECT').length;
-  // "Approved Proposals" counted ONLY from proposals whose actual returned status is 'APPROVED'
-  const approvedProposals = proposals.filter((p) => p.status === 'APPROVED');
+  // Session governance metrics (computed strictly from displayed data adhering to report isolation)
+  const totalDecisions = displayedDecisions.length;
+  const reuseCount = displayedDecisions.filter((d) => d.decision === 'REUSE').length;
+  const adaptCount = displayedDecisions.filter((d) => d.decision === 'ADAPT').length;
+  const rejectCount = displayedDecisions.filter((d) => d.decision === 'REJECT').length;
+  // "Approved Proposals" counted ONLY from proposals whose actual status is 'APPROVED'
+  const approvedProposals = displayedProposals.filter((p) => p.status === 'APPROVED');
   const approvedProposalsCount = approvedProposals.length;
 
   return (
@@ -321,7 +414,7 @@ export default function ApprovedChangeReport({ approvedReport }) {
           }}
         >
           <FileCheck2 size={14} />
-          <span>Approved Change Manifest</span>
+          <span>Approved Change Report</span>
           {report && (
             <span className="badge" style={{ fontSize: '0.68rem', background: 'rgba(21, 128, 61, 0.15)', color: 'var(--color-success)' }}>
               Authorized
@@ -347,7 +440,7 @@ export default function ApprovedChangeReport({ approvedReport }) {
           }}
         >
           <Clock size={14} />
-          <span>Session Decision Audit Trail</span>
+          <span>{report ? 'Change History' : 'Session Decision Audit Trail'}</span>
           <span
             className="badge"
             style={{
@@ -356,7 +449,7 @@ export default function ApprovedChangeReport({ approvedReport }) {
               color: 'var(--text-primary)',
             }}
           >
-            {totalDecisions}
+            {displayedAuditEvents.length}
           </span>
         </button>
       </div>
@@ -909,6 +1002,363 @@ export default function ApprovedChangeReport({ approvedReport }) {
                 )}
               </div>
 
+              {/* 7. Business Change History (Part 7, 8, 11) */}
+              <div style={{ marginBottom: '1.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <Clock size={16} color="var(--color-brand)" />
+                    <h4
+                      style={{
+                        fontFamily: 'var(--font-heading)',
+                        fontSize: '0.95rem',
+                        color: '#fff',
+                        margin: 0,
+                      }}
+                    >
+                      Change History ({relevantAuditEvents.length})
+                    </h4>
+                  </div>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                    Chronological regulatory actions for this approved change
+                  </span>
+                </div>
+
+                {relevantAuditEvents.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                    {relevantAuditEvents.map((evt, idx) => (
+                      <div
+                        key={evt.event_id || idx}
+                        style={{
+                          background: 'var(--bg-surface)',
+                          border: '1px solid var(--border-subtle)',
+                          borderRadius: 'var(--radius-sm)',
+                          padding: '0.85rem 1rem',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <CheckCircle2 size={15} color="var(--color-brand)" />
+                            <strong style={{ fontSize: '0.84rem', color: '#fff' }}>
+                              {getBusinessEventLabel(evt.event_type)}
+                            </strong>
+                            {evt.new_status && (
+                              <span className="badge" style={{ fontSize: '0.68rem', background: 'rgba(13, 148, 136, 0.15)', color: 'var(--color-brand)' }}>
+                                {evt.new_status}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                            <Clock size={12} />
+                            <span>{formatTimestamp(evt.occurred_at)}</span>
+                          </div>
+                        </div>
+
+                        <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>
+                          {getBusinessEventDescription(evt)}
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                          <span>Reviewer: <strong style={{ color: '#cbd5e1' }}>{evt.reviewer_name || 'Regulatory User'}</strong></span>
+                          {evt.change_id && <span>Change ID: <code style={{ fontSize: '0.7rem' }}>{evt.change_id}</code></span>}
+                          {evt.decision_id && <span>Decision ID: <code style={{ fontSize: '0.7rem' }}>{evt.decision_id}</code></span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ background: 'var(--bg-surface)', padding: '0.85rem', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', color: 'var(--text-muted)', textAlign: 'center' }}>
+                    No audit history events associated with this approved change report.
+                  </div>
+                )}
+              </div>
+
+              {/* 8. Cryptographic Audit Verification (Part 9, 10, 11 - Secondary Expandable Section) */}
+              <div style={{ marginBottom: '1.5rem' }}>
+                <details
+                  style={{
+                    background: 'var(--bg-surface)',
+                    border: '1px solid var(--border-subtle)',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '0.85rem 1rem',
+                  }}
+                >
+                  <summary
+                    style={{
+                      cursor: 'pointer',
+                      fontWeight: '600',
+                      fontSize: '0.88rem',
+                      color: '#fff',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      userSelect: 'none',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <ShieldCheck size={16} color="var(--color-brand)" />
+                      <span>Cryptographic Audit Verification</span>
+                    </div>
+                    <span
+                      className="badge"
+                      style={{
+                        fontSize: '0.68rem',
+                        background: 'rgba(59, 130, 246, 0.12)',
+                        color: '#93c5fd',
+                      }}
+                    >
+                      SHA-256 Tamper Evident Details ▾
+                    </span>
+                  </summary>
+
+                  <div style={{ marginTop: '0.85rem', paddingTop: '0.85rem', borderTop: '1px solid var(--border-subtle)' }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: '0.75rem',
+                        marginBottom: '1rem',
+                      }}
+                    >
+                      <div>
+                        <p style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', margin: 0 }}>
+                          Tamper-evident SHA-256 back-linked hash chain covering all human decisions, proposals, validations, and approvals for this report.
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleVerifyChain}
+                        disabled={verifying}
+                        className="btn btn-primary"
+                        style={{ fontSize: '0.8rem', padding: '0.4rem 0.85rem' }}
+                        title="Execute SHA-256 back-link and canonical payload verification"
+                      >
+                        {verifying ? (
+                          <>
+                            <RefreshCw size={13} className="animate-spin" /> Verifying Chain...
+                          </>
+                        ) : (
+                          <>
+                            <ShieldCheck size={14} /> Verify Audit Chain
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {/* Verification Result Display */}
+                    {verifying && (
+                      <div
+                        style={{
+                          padding: '0.75rem 1rem',
+                          background: 'rgba(59, 130, 246, 0.1)',
+                          border: '1px solid rgba(59, 130, 246, 0.3)',
+                          borderRadius: 'var(--radius-sm)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.6rem',
+                          fontSize: '0.78rem',
+                          color: '#93c5fd',
+                          marginBottom: '1rem',
+                        }}
+                      >
+                        <RefreshCw size={16} className="animate-spin" />
+                        <span>Executing cryptographic verification across audit records...</span>
+                      </div>
+                    )}
+
+                    {!verifying && verificationResult && verificationResult.valid === true && (
+                      <div
+                        style={{
+                          padding: '0.85rem 1rem',
+                          background: 'rgba(21, 128, 61, 0.08)',
+                          border: '1px solid rgba(21, 128, 61, 0.25)',
+                          borderRadius: 'var(--radius-sm)',
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: '0.65rem',
+                          marginBottom: '1rem',
+                        }}
+                      >
+                        <CheckCircle2 size={18} color="var(--color-success)" style={{ flexShrink: 0, marginTop: '2px' }} />
+                        <div>
+                          <div style={{ fontWeight: '600', color: 'var(--color-success)', fontSize: '0.84rem' }}>
+                            ✓ Audit chain verified
+                          </div>
+                          <div style={{ fontSize: '0.76rem', color: '#166534', marginTop: '0.2rem' }}>
+                            The recorded audit history passed SHA-256 integrity verification. All <strong>{verificationResult.checked_event_count}</strong> audit events were verified. Every canonical payload matches its stored hash, and all sequential back-links are intact.
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {!verifying && verificationResult && verificationResult.valid === false && (
+                      <div
+                        style={{
+                          padding: '0.85rem 1rem',
+                          background: 'rgba(185, 28, 28, 0.08)',
+                          border: '1px solid rgba(185, 28, 28, 0.25)',
+                          borderRadius: 'var(--radius-sm)',
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: '0.65rem',
+                          marginBottom: '1rem',
+                        }}
+                      >
+                        <ShieldAlert size={18} color="var(--color-danger)" style={{ flexShrink: 0, marginTop: '2px' }} />
+                        <div>
+                          <div style={{ fontWeight: '600', color: 'var(--color-danger)', fontSize: '0.84rem' }}>
+                            Audit Chain Verification Discrepancy Detected
+                          </div>
+                          <div style={{ fontSize: '0.76rem', color: '#991b1b', marginTop: '0.2rem' }}>
+                            Checked {verificationResult.checked_event_count} events before encountering discrepancy.
+                            {verificationResult.first_invalid_event_id && (
+                              <span style={{ display: 'block', marginTop: '0.2rem' }}>
+                                First invalid event ID: <code>{verificationResult.first_invalid_event_id}</code>
+                              </span>
+                            )}
+                            {verificationResult.reason && (
+                              <span style={{ display: 'block', marginTop: '0.2rem' }}>
+                                Diagnostic reason: {verificationResult.reason}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {!verifying && verificationError && (
+                      <div
+                        style={{
+                          padding: '0.75rem 1rem',
+                          background: 'rgba(185, 28, 28, 0.08)',
+                          border: '1px solid rgba(185, 28, 28, 0.25)',
+                          borderRadius: 'var(--radius-sm)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.6rem',
+                          fontSize: '0.8rem',
+                          color: '#991b1b',
+                          marginBottom: '1rem',
+                        }}
+                      >
+                        <AlertCircle size={16} color="var(--color-danger)" />
+                        <span>Verification Request Error: {verificationError}</span>
+                      </div>
+                    )}
+
+                    {!verifying && !verificationResult && !verificationError && (
+                      <div
+                        style={{
+                          padding: '0.75rem 1rem',
+                          background: 'rgba(100, 116, 139, 0.08)',
+                          border: '1px solid rgba(100, 116, 139, 0.2)',
+                          borderRadius: 'var(--radius-sm)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.6rem',
+                          fontSize: '0.78rem',
+                          color: 'var(--text-secondary)',
+                          marginBottom: '1rem',
+                        }}
+                      >
+                        <Shield size={16} color="var(--text-muted)" />
+                        <span>
+                          <strong>Chain Status:</strong> Click <strong>Verify Audit Chain</strong> to mathematically validate SHA-256 back-links against stored canonical payloads.
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Technical Ledger for this report */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                      {relevantAuditEvents.map((evt, idx) => {
+                        const isExpanded = expandedEventId === `report_${evt.event_id}`;
+                        const prevHashDisplay = evt.previous_event_hash
+                          ? truncateHash(evt.previous_event_hash, 12)
+                          : '[Genesis Event - No Predecessor]';
+                        const eventHashDisplay = truncateHash(evt.event_hash, 12);
+                        const isCopied = copiedHash === evt.event_hash;
+
+                        return (
+                          <div
+                            key={evt.event_id || idx}
+                            style={{
+                              background: 'var(--bg-main)',
+                              border: '1px solid var(--border-subtle)',
+                              borderRadius: 'var(--radius-sm)',
+                              padding: '0.75rem 0.9rem',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                <code style={{ fontSize: '0.68rem', color: 'var(--color-brand)' }}>{evt.event_id}</code>
+                                <code style={{ fontSize: '0.68rem', background: '#edf0f5', padding: '0.1rem 0.35rem', borderRadius: '3px', color: 'var(--text-secondary)' }}>
+                                  {evt.event_type}
+                                </code>
+                              </div>
+                              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{formatTimestamp(evt.occurred_at)}</span>
+                            </div>
+
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.4rem', fontSize: '0.72rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap' }}>
+                                <div>
+                                  <span style={{ color: 'var(--text-muted)' }}>SHA-256: </span>
+                                  <code style={{ color: 'var(--color-brand)', fontWeight: '600' }}>{eventHashDisplay}</code>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyHash(evt.event_hash)}
+                                    style={{ background: 'transparent', border: 'none', color: isCopied ? 'var(--color-success)' : 'var(--text-muted)', cursor: 'pointer', padding: '0 0.25rem' }}
+                                    title="Copy full 64-character SHA-256 hash"
+                                  >
+                                    <Copy size={11} />
+                                  </button>
+                                  {isCopied && <span style={{ fontSize: '0.65rem', color: 'var(--color-success)' }}>Copied!</span>}
+                                </div>
+                                <div>
+                                  <span style={{ color: 'var(--text-muted)' }}>Prev Link: </span>
+                                  <code style={{ color: evt.previous_event_hash ? 'var(--text-secondary)' : 'var(--color-success)' }}>{prevHashDisplay}</code>
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => setExpandedEventId(isExpanded ? null : `report_${evt.event_id}`)}
+                                className="btn btn-secondary"
+                                style={{ fontSize: '0.68rem', padding: '0.15rem 0.45rem' }}
+                              >
+                                {isExpanded ? <><ChevronUp size={11} /> Hide Payload</> : <><ChevronDown size={11} /> Inspect Payload</>}
+                              </button>
+                            </div>
+
+                            {isExpanded && (
+                              <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: '#ffffff', borderRadius: '3px', border: '1px solid var(--border-subtle)', fontSize: '0.68rem' }}>
+                                <div style={{ marginBottom: '0.3rem', wordBreak: 'break-all' }}>
+                                  <strong>Full SHA-256 Digest: </strong><code>{evt.event_hash}</code>
+                                </div>
+                                {evt.previous_event_hash && (
+                                  <div style={{ marginBottom: '0.3rem', wordBreak: 'break-all' }}>
+                                    <strong>Previous Hash: </strong><code>{evt.previous_event_hash}</code>
+                                  </div>
+                                )}
+                                {evt.details && (
+                                  <div>
+                                    <strong>Canonical Event Details:</strong>
+                                    <pre style={{ margin: '0.2rem 0 0 0', padding: '0.4rem', background: '#f8fafc', borderRadius: '3px', overflowX: 'auto', fontSize: '0.65rem' }}>
+                                      {JSON.stringify(evt.details, null, 2)}
+                                    </pre>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </details>
+              </div>
+
               {/* Footer Sign-off / Compliance Note */}
               <div
                 style={{
@@ -1039,11 +1489,53 @@ export default function ApprovedChangeReport({ approvedReport }) {
       )}
 
       {/* ========================================================================= */}
-      {/* VIEW 2: SESSION DECISION AUDIT TRAIL (Step 6.8 Audit & Traceability)      */}
+      {/* VIEW 2: CHANGE HISTORY & AUDIT TRAIL                                      */}
       {/* ========================================================================= */}
       {activeView === 'audit_trail' && (
         <div style={{ maxWidth: '920px', margin: '0 auto' }}>
-          {/* 1. Session Governance Summary Cards */}
+          {/* Report Isolation Status Banner (when viewing with an active approved report) */}
+          {report && (
+            <div
+              style={{
+                padding: '0.75rem 1rem',
+                background: showAllSessionHistory ? 'rgba(245, 158, 11, 0.08)' : 'rgba(13, 148, 136, 0.08)',
+                border: showAllSessionHistory ? '1px solid rgba(245, 158, 11, 0.25)' : '1px solid rgba(13, 148, 136, 0.25)',
+                borderRadius: 'var(--radius-sm)',
+                marginBottom: '1.25rem',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '0.6rem',
+                fontSize: '0.78rem',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <ShieldCheck size={16} color="var(--color-brand)" />
+                <span>
+                  {showAllSessionHistory ? (
+                    <span>
+                      <strong>Global Session History:</strong> Viewing all activity across session documents.
+                    </span>
+                  ) : (
+                    <span>
+                      <strong>Report Isolation Active:</strong> Showing change history strictly associated with Report <code>{report.report_id}</code> ({displayedAuditEvents.length} events, {displayedDecisions.length} decisions, {displayedProposals.length} proposals).
+                    </span>
+                  )}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAllSessionHistory(!showAllSessionHistory)}
+                className="btn btn-secondary"
+                style={{ fontSize: '0.72rem', padding: '0.25rem 0.65rem' }}
+              >
+                {showAllSessionHistory ? 'Isolate to This Report' : 'Show All Session Documents'}
+              </button>
+            </div>
+          )}
+
+          {/* 1. Governance Summary Cards */}
           <div
             className="grid-3"
             style={{
@@ -1066,7 +1558,7 @@ export default function ApprovedChangeReport({ approvedReport }) {
                 {historyLoading ? '...' : totalDecisions}
               </div>
               <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
-                Authoritative human reviewer choices
+                {report && !showAllSessionHistory ? 'Decisions for this report' : 'Authoritative human reviewer choices'}
               </span>
             </div>
 
@@ -1117,183 +1609,8 @@ export default function ApprovedChangeReport({ approvedReport }) {
             </div>
           </div>
 
-          {/* ========================================================================= */}
-          {/* 2. CRYPTOGRAPHIC AUDIT TRAIL INTEGRITY & VERIFICATION CARD                */}
-          {/* ========================================================================= */}
-          <div
-            className="card"
-            style={{
-              padding: '1.25rem',
-              background: 'var(--bg-surface)',
-              border: '1px solid var(--border-subtle)',
-              marginBottom: '1.25rem',
-            }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                flexWrap: 'wrap',
-                gap: '0.75rem',
-                marginBottom: '1rem',
-              }}
-            >
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <ShieldCheck size={18} color="var(--color-brand)" />
-                  <h3 style={{ fontSize: '1rem', fontWeight: '600', margin: 0, color: '#fff' }}>
-                    Cryptographic Audit Trail Integrity
-                  </h3>
-                </div>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0.25rem 0 0 0' }}>
-                  Tamper-evident SHA-256 back-linked hash chain covering all human decisions, proposals, occurrence reviews, validations, and approvals.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleVerifyChain}
-                disabled={verifying}
-                className="btn btn-primary"
-                style={{ fontSize: '0.82rem', padding: '0.45rem 0.9rem' }}
-                title="Execute SHA-256 back-link and canonical payload verification via GET /audit/verify"
-              >
-                {verifying ? (
-                  <>
-                    <RefreshCw size={13} className="animate-spin" /> Verifying Chain...
-                  </>
-                ) : (
-                  <>
-                    <ShieldCheck size={14} /> Verify Audit Chain
-                  </>
-                )}
-              </button>
-            </div>
-
-            {/* Verification Status Display */}
-            {verifying && (
-              <div
-                style={{
-                  padding: '0.75rem 1rem',
-                  background: 'rgba(59, 130, 246, 0.1)',
-                  border: '1px solid rgba(59, 130, 246, 0.3)',
-                  borderRadius: 'var(--radius-sm)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.6rem',
-                  fontSize: '0.8rem',
-                  color: '#93c5fd',
-                }}
-              >
-                <RefreshCw size={16} className="animate-spin" />
-                <span>Executing cryptographic verification across all audit records...</span>
-              </div>
-            )}
-
-            {!verifying && verificationResult && verificationResult.valid === true && (
-              <div
-                style={{
-                  padding: '0.85rem 1rem',
-                  background: 'rgba(21, 128, 61, 0.08)',
-                  border: '1px solid rgba(21, 128, 61, 0.25)',
-                  borderRadius: 'var(--radius-sm)',
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: '0.65rem',
-                }}
-              >
-                <CheckCircle2 size={18} color="var(--color-success)" style={{ flexShrink: 0, marginTop: '2px' }} />
-                <div>
-                  <div style={{ fontWeight: '600', color: 'var(--color-success)', fontSize: '0.84rem' }}>
-                    Cryptographic Integrity Verified (SHA-256 Chain Intact)
-                  </div>
-                  <div style={{ fontSize: '0.76rem', color: '#166534', marginTop: '0.2rem' }}>
-                    All <strong>{verificationResult.checked_event_count}</strong> audit events were verified. Every canonical payload matches its stored hash, and all sequential back-links are intact. Zero tampering detected.
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {!verifying && verificationResult && verificationResult.valid === false && (
-              <div
-                style={{
-                  padding: '0.85rem 1rem',
-                  background: 'rgba(185, 28, 28, 0.08)',
-                  border: '1px solid rgba(185, 28, 28, 0.25)',
-                  borderRadius: 'var(--radius-sm)',
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: '0.65rem',
-                }}
-              >
-                <ShieldAlert size={18} color="var(--color-danger)" style={{ flexShrink: 0, marginTop: '2px' }} />
-                <div>
-                  <div style={{ fontWeight: '600', color: 'var(--color-danger)', fontSize: '0.84rem' }}>
-                    Audit Chain Verification Failed (Integrity Compromised)
-                  </div>
-                  <div style={{ fontSize: '0.76rem', color: '#991b1b', marginTop: '0.2rem' }}>
-                    Checked {verificationResult.checked_event_count} events before encountering discrepancy.
-                    {verificationResult.first_invalid_event_id && (
-                      <span style={{ display: 'block', marginTop: '0.2rem' }}>
-                        First invalid event ID: <code>{verificationResult.first_invalid_event_id}</code>
-                      </span>
-                    )}
-                    {verificationResult.reason && (
-                      <span style={{ display: 'block', marginTop: '0.2rem' }}>
-                        Diagnostic reason: {verificationResult.reason}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {!verifying && verificationError && (
-              <div
-                style={{
-                  padding: '0.75rem 1rem',
-                  background: 'rgba(185, 28, 28, 0.08)',
-                  border: '1px solid rgba(185, 28, 28, 0.25)',
-                  borderRadius: 'var(--radius-sm)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.6rem',
-                  fontSize: '0.8rem',
-                  color: '#991b1b',
-                }}
-              >
-                <AlertCircle size={16} color="var(--color-danger)" />
-                <span>Verification Request Error: {verificationError}</span>
-              </div>
-            )}
-
-            {!verifying && !verificationResult && !verificationError && (
-              <div
-                style={{
-                  padding: '0.75rem 1rem',
-                  background: 'rgba(100, 116, 139, 0.08)',
-                  border: '1px solid rgba(100, 116, 139, 0.2)',
-                  borderRadius: 'var(--radius-sm)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.6rem',
-                  fontSize: '0.78rem',
-                  color: 'var(--text-secondary)',
-                }}
-              >
-                <Shield size={16} color="var(--text-muted)" />
-                <span>
-                  <strong>Chain Status:</strong> Not yet verified this session. Click <strong>Verify Audit Chain</strong> to mathematically validate all SHA-256 back-links against stored canonical payloads.
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* ========================================================================= */}
-          {/* 3. CRYPTOGRAPHIC AUDIT EVENT LEDGER (GET /audit)                          */}
-          {/* ========================================================================= */}
-          <div style={{ marginBottom: '2rem' }}>
+          {/* 2. PRIMARY VIEW: BUSINESS-FACING CHANGE HISTORY (Timeline) */}
+          <div style={{ marginBottom: '1.5rem' }}>
             <div
               style={{
                 display: 'flex',
@@ -1305,32 +1622,20 @@ export default function ApprovedChangeReport({ approvedReport }) {
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Layers size={16} color="var(--color-brand)" />
-                <h4 style={{ fontSize: '0.92rem', fontWeight: '600', margin: 0, color: '#fff' }}>
-                  Cryptographic Audit Event Ledger
+                <Clock size={16} color="var(--color-brand)" />
+                <h4 style={{ fontSize: '0.95rem', fontWeight: '600', margin: 0, color: '#fff' }}>
+                  Change History ({displayedAuditEvents.length})
                 </h4>
-                <span
-                  style={{
-                    fontSize: '0.72rem',
-                    background: 'rgba(59, 130, 246, 0.15)',
-                    color: 'var(--color-brand)',
-                    padding: '0.15rem 0.5rem',
-                    borderRadius: 'var(--radius-sm)',
-                    fontWeight: '600',
-                  }}
-                >
-                  {auditEvents.length} Events
-                </span>
               </div>
               <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                Append-only chronological sequence (GET /audit)
+                {report && !showAllSessionHistory ? 'Chronological regulatory actions for this approved change' : 'All session workflow activity'}
               </span>
             </div>
 
             {auditLoading && (
               <div className="card" style={{ textAlign: 'center', padding: '1.5rem' }}>
                 <div style={{ color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
-                  Loading cryptographic audit ledger...
+                  Loading change history...
                 </div>
               </div>
             )}
@@ -1355,241 +1660,240 @@ export default function ApprovedChangeReport({ approvedReport }) {
               </div>
             )}
 
-            {!auditLoading && !auditError && auditEvents.length === 0 && (
+            {!auditLoading && !auditError && displayedAuditEvents.length === 0 && (
               <div className="card" style={{ padding: '1.5rem', textAlign: 'center' }}>
                 <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>
-                  No cryptographic audit events recorded yet. Complete document reviews, candidate comparisons, or change authorizations to generate audit records.
+                  No change history events recorded yet. Complete document reviews, candidate comparisons, or change authorizations to generate audit records.
                 </p>
               </div>
             )}
 
-            {!auditLoading && auditEvents.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                {auditEvents.map((evt, idx) => {
-                  const isExpanded = expandedEventId === evt.event_id;
-                  const prevHashDisplay = evt.previous_event_hash
-                    ? truncateHash(evt.previous_event_hash, 12)
-                    : '[Genesis Event - No Predecessor]';
-                  const eventHashDisplay = truncateHash(evt.event_hash, 12);
-                  const isCopied = copiedHash === evt.event_hash;
+            {!auditLoading && displayedAuditEvents.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                {displayedAuditEvents.map((evt, idx) => (
+                  <div
+                    key={evt.event_id || idx}
+                    style={{
+                      background: 'var(--bg-surface)',
+                      border: '1px solid var(--border-subtle)',
+                      borderRadius: 'var(--radius-sm)',
+                      padding: '0.85rem 1rem',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: '0.35rem',
+                        flexWrap: 'wrap',
+                        gap: '0.5rem',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <CheckCircle2 size={15} color="var(--color-brand)" />
+                        <strong style={{ fontSize: '0.84rem', color: '#fff' }}>
+                          {getBusinessEventLabel(evt.event_type)}
+                        </strong>
+                        {evt.new_status && (
+                          <span className="badge" style={{ fontSize: '0.68rem', background: 'rgba(13, 148, 136, 0.15)', color: 'var(--color-brand)' }}>
+                            {evt.new_status}
+                          </span>
+                        )}
+                      </div>
+
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                        <Clock size={12} />
+                        <span>{formatTimestamp(evt.occurred_at)}</span>
+                      </div>
+                    </div>
+
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>
+                      {getBusinessEventDescription(evt)}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                      <span>Reviewer: <strong style={{ color: '#cbd5e1' }}>{evt.reviewer_name || 'Regulatory User'}</strong></span>
+                      {evt.change_id && <span>Change ID: <code style={{ fontSize: '0.7rem' }}>{evt.change_id}</code></span>}
+                      {evt.decision_id && <span>Decision ID: <code style={{ fontSize: '0.7rem' }}>{evt.decision_id}</code></span>}
+                      {evt.report_id && <span>Report ID: <code style={{ fontSize: '0.7rem' }}>{evt.report_id}</code></span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 3. HUMAN REGULATORY DECISIONS (Filtered) */}
+          <div style={{ marginBottom: '1.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.85rem' }}>
+              <CheckCircle size={16} color="var(--color-brand)" />
+              <h4 style={{ fontSize: '0.92rem', fontWeight: '600', margin: 0, color: '#fff' }}>
+                Human Regulatory Decisions ({displayedDecisions.length} recorded)
+              </h4>
+            </div>
+
+            {historyLoading && (
+              <div className="card" style={{ textAlign: 'center', padding: '1.5rem' }}>
+                <div style={{ color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
+                  Loading reviewer decisions...
+                </div>
+              </div>
+            )}
+
+            {historyError && (
+              <div
+                style={{
+                  padding: '0.75rem 1rem',
+                  background: 'rgba(239, 68, 68, 0.12)',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  borderRadius: 'var(--radius-sm)',
+                  color: '#fca5a5',
+                  fontSize: '0.8rem',
+                  marginBottom: '1rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                }}
+              >
+                <AlertCircle size={16} color="var(--color-danger)" />
+                <span>{historyError}</span>
+              </div>
+            )}
+
+            {!historyLoading && !historyError && displayedDecisions.length === 0 && (
+              <div className="card">
+                <div className="empty-state">
+                  <Clock size={36} />
+                  <p>No regulatory decisions associated with this report.</p>
+                </div>
+              </div>
+            )}
+
+            {!historyLoading && displayedDecisions.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                {displayedDecisions.map((d, idx) => {
+                  const isReuse = d.decision === 'REUSE';
+                  const isAdapt = d.decision === 'ADAPT';
+                  const isReject = d.decision === 'REJECT';
 
                   return (
                     <div
-                      key={evt.event_id || idx}
+                      key={d.decision_id || idx}
                       style={{
                         background: 'var(--bg-surface)',
                         border: '1px solid var(--border-subtle)',
                         borderRadius: 'var(--radius-sm)',
-                        padding: '0.85rem 1rem',
+                        padding: '1rem',
                       }}
                     >
-                      {/* Event Row 1: Header */}
                       <div
                         style={{
                           display: 'flex',
                           justifyContent: 'space-between',
                           alignItems: 'center',
+                          marginBottom: '0.65rem',
                           flexWrap: 'wrap',
                           gap: '0.5rem',
-                          marginBottom: '0.5rem',
                         }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                           <span
+                            className={`badge badge-${d.decision.toLowerCase()}`}
                             style={{
-                              fontSize: '0.72rem',
-                              fontWeight: '700',
-                              background: 'rgba(13, 148, 136, 0.1)',
-                              color: 'var(--color-brand)',
-                              padding: '0.15rem 0.45rem',
-                              borderRadius: '3px',
+                              fontSize: '0.74rem',
+                              padding: '0.25rem 0.6rem',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.35rem',
                             }}
                           >
-                            #{idx + 1}
+                            {isReuse && <CheckCircle2 size={12} />}
+                            {isAdapt && <Edit3 size={12} />}
+                            {isReject && <XCircle size={12} />}
+                            {d.decision}
                           </span>
-                          <strong style={{ fontSize: '0.82rem', color: 'var(--text-primary)' }}>
-                            {formatEventType(evt.event_type)}
-                          </strong>
-                          <code
-                            style={{
-                              fontSize: '0.68rem',
-                              background: '#edf0f5',
-                              padding: '0.1rem 0.35rem',
-                              borderRadius: '3px',
-                              color: 'var(--text-secondary)',
-                            }}
-                          >
-                            {evt.event_type}
-                          </code>
+
+                          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                            Decision ID: <code>{d.decision_id || 'Not available'}</code>
+                          </span>
                         </div>
 
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                        <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                           <Clock size={12} />
-                          <span>{formatTimestamp(evt.occurred_at)}</span>
+                          <span>Decided: {formatTimestamp(d.decided_at)}</span>
                         </div>
                       </div>
 
-                      {/* Event Row 2: Metadata */}
                       <div
+                        className="grid-3"
                         style={{
-                          display: 'grid',
-                          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                          gap: '0.5rem',
                           background: 'var(--bg-main)',
-                          padding: '0.5rem 0.75rem',
+                          padding: '0.65rem 0.85rem',
                           borderRadius: 'var(--radius-sm)',
-                          fontSize: '0.74rem',
-                          marginBottom: '0.5rem',
-                        }}
-                      >
-                        <div>
-                          <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '0.68rem' }}>
-                            Actor / Reviewer
-                          </span>
-                          <span style={{ color: '#fff', fontWeight: '500' }}>
-                            {evt.reviewer_name || 'System / Regulatory User'}
-                          </span>
-                        </div>
-
-                        <div>
-                          <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '0.68rem' }}>
-                            Status Transition
-                          </span>
-                          <span style={{ color: 'var(--color-brand)', fontWeight: '500' }}>
-                            {evt.previous_status ? `${evt.previous_status} → ` : ''}
-                            {evt.new_status || 'TRANSITION'}
-                          </span>
-                        </div>
-
-                        <div>
-                          <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '0.68rem' }}>
-                            Linked Identifier
-                          </span>
-                          <code style={{ fontSize: '0.7rem', color: '#cbd5e1' }}>
-                            {evt.change_id || evt.decision_id || evt.report_id || evt.event_id}
-                          </code>
-                        </div>
-                      </div>
-
-                      {/* Event Row 3: Hashes & Traceability */}
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          flexWrap: 'wrap',
+                          marginBottom: '0.75rem',
                           gap: '0.5rem',
-                          fontSize: '0.72rem',
-                          paddingTop: '0.25rem',
+                          fontSize: '0.75rem',
                         }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-                          <div>
-                            <span style={{ color: 'var(--text-muted)' }}>SHA-256: </span>
-                            <code
-                              title={evt.event_hash}
-                              style={{ color: 'var(--color-brand)', fontWeight: '600' }}
-                            >
-                              {eventHashDisplay}
-                            </code>
-                            <button
-                              type="button"
-                              onClick={() => handleCopyHash(evt.event_hash)}
-                              style={{
-                                background: 'transparent',
-                                border: 'none',
-                                color: isCopied ? 'var(--color-success)' : 'var(--text-muted)',
-                                cursor: 'pointer',
-                                padding: '0 0.25rem',
-                                verticalAlign: 'middle',
-                              }}
-                              title={isCopied ? 'Copied!' : 'Copy full 64-char SHA-256 hash'}
-                            >
-                              <Copy size={11} />
-                            </button>
-                            {isCopied && (
-                              <span style={{ fontSize: '0.68rem', color: 'var(--color-success)', marginLeft: '0.2rem' }}>
-                                Copied!
-                              </span>
-                            )}
-                          </div>
-
-                          <div>
-                            <span style={{ color: 'var(--text-muted)' }}>Prev Link: </span>
-                            <code
-                              title={evt.previous_event_hash || 'Genesis event'}
-                              style={{ color: evt.previous_event_hash ? 'var(--text-secondary)' : 'var(--color-success)' }}
-                            >
-                              {prevHashDisplay}
-                            </code>
-                          </div>
+                        <div>
+                          <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '0.68rem', textTransform: 'uppercase' }}>
+                            Reviewer Attribution
+                          </span>
+                          <strong style={{ color: '#fff' }}>{d.reviewer_name || 'Not available in returned data'}</strong>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() => setExpandedEventId(isExpanded ? null : evt.event_id)}
-                          className="btn btn-secondary"
-                          style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem' }}
-                        >
-                          {isExpanded ? (
-                            <>
-                              <ChevronUp size={11} /> Hide Payload
-                            </>
-                          ) : (
-                            <>
-                              <ChevronDown size={11} /> Inspect Details
-                            </>
-                          )}
-                        </button>
+                        <div>
+                          <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '0.68rem', textTransform: 'uppercase' }}>
+                            Target Content ID
+                          </span>
+                          <code>{d.target_content_id || 'Not available'}</code>
+                        </div>
+
+                        <div>
+                          <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '0.68rem', textTransform: 'uppercase' }}>
+                            Candidate ID
+                          </span>
+                          <code>{d.candidate_id || 'None / Not specified'}</code>
+                        </div>
                       </div>
 
-                      {/* Expandable Canonical Detail */}
-                      {isExpanded && (
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: isAdapt && d.adaptation_instructions ? '0.5rem' : '0' }}>
+                        <strong style={{ color: 'var(--text-muted)' }}>Reviewer Notes / Clinical Justification: </strong>
+                        <span style={{ color: '#e2e8f0' }}>{d.reviewer_notes || 'No notes recorded'}</span>
+                      </div>
+
+                      {isAdapt && d.adaptation_instructions && (
                         <div
                           style={{
-                            marginTop: '0.65rem',
-                            padding: '0.65rem 0.85rem',
-                            background: '#f8fafc',
+                            marginTop: '0.5rem',
+                            padding: '0.5rem 0.75rem',
+                            background: 'rgba(147, 51, 234, 0.08)',
+                            borderLeft: '2px solid #a855f7',
                             borderRadius: 'var(--radius-sm)',
-                            border: '1px solid var(--border-subtle)',
-                            fontSize: '0.72rem',
+                            fontSize: '0.75rem',
                           }}
                         >
-                          <div style={{ marginBottom: '0.4rem' }}>
-                            <strong style={{ color: 'var(--text-secondary)' }}>Event ID: </strong>
-                            <code>{evt.event_id}</code>
-                          </div>
-                          <div style={{ marginBottom: '0.4rem', wordBreak: 'break-all' }}>
-                            <strong style={{ color: 'var(--text-secondary)' }}>Full SHA-256 Digest: </strong>
-                            <code style={{ color: 'var(--color-brand)', fontWeight: '600' }}>{evt.event_hash}</code>
-                          </div>
-                          {evt.previous_event_hash && (
-                            <div style={{ marginBottom: '0.4rem', wordBreak: 'break-all' }}>
-                              <strong style={{ color: 'var(--text-secondary)' }}>Previous SHA-256 Link: </strong>
-                              <code style={{ color: 'var(--text-primary)' }}>{evt.previous_event_hash}</code>
-                            </div>
-                          )}
-                          {evt.details && Object.keys(evt.details).length > 0 && (
-                            <div style={{ marginTop: '0.4rem' }}>
-                              <strong style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '0.2rem' }}>
-                                Canonical Event Details:
-                              </strong>
-                              <pre
-                                style={{
-                                  background: '#ffffff',
-                                  padding: '0.5rem',
-                                  borderRadius: '3px',
-                                  margin: 0,
-                                  fontSize: '0.68rem',
-                                  color: 'var(--text-primary)',
-                                  border: '1px solid var(--border-subtle)',
-                                  overflowX: 'auto',
-                                }}
-                              >
-                                {JSON.stringify(evt.details, null, 2)}
-                              </pre>
-                            </div>
-                          )}
+                          <strong style={{ color: '#c084fc', display: 'block', marginBottom: '0.2rem' }}>
+                            Human Adaptation Instructions:
+                          </strong>
+                          <span style={{ color: '#e2e8f0' }}>{d.adaptation_instructions}</span>
+                        </div>
+                      )}
+
+                      {isReject && (
+                        <div
+                          style={{
+                            marginTop: '0.5rem',
+                            padding: '0.5rem 0.75rem',
+                            background: 'rgba(239, 68, 68, 0.08)',
+                            borderLeft: '2px solid #ef4444',
+                            borderRadius: 'var(--radius-sm)',
+                            fontSize: '0.73rem',
+                            color: '#fca5a5',
+                          }}
+                        >
+                          <strong>Rejection Safeguard:</strong> This candidate was declined by the human reviewer. Downstream change proposal formulation was blocked, no changes were compiled, and original draft content remains strictly preserved.
                         </div>
                       )}
                     </div>
@@ -1599,228 +1903,18 @@ export default function ApprovedChangeReport({ approvedReport }) {
             )}
           </div>
 
-          {/* ========================================================================= */}
-          {/* 4. SESSION REVIEWER DECISION HISTORY (Existing Section)                   */}
-          {/* ========================================================================= */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.85rem' }}>
-            <Clock size={16} color="var(--color-brand)" />
-            <h4 style={{ fontSize: '0.92rem', fontWeight: '600', margin: 0, color: '#fff' }}>
-              Human Regulatory Decisions ({decisionHistory.length} recorded)
-            </h4>
-          </div>
-
-          {/* Loading and Error States */}
-          {historyLoading && (
-            <div className="card" style={{ textAlign: 'center', padding: '2rem' }}>
-              <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-                Loading session decision audit trail...
-              </div>
-            </div>
-          )}
-
-          {historyError && (
-            <div
-              style={{
-                padding: '0.75rem 1rem',
-                background: 'rgba(239, 68, 68, 0.12)',
-                border: '1px solid rgba(239, 68, 68, 0.3)',
-                borderRadius: 'var(--radius-sm)',
-                color: '#fca5a5',
-                fontSize: '0.8rem',
-                marginBottom: '1rem',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-              }}
-            >
-              <AlertCircle size={16} color="var(--color-danger)" />
-              <span>{historyError}</span>
-            </div>
-          )}
-
-          {proposalsError && (
-            <div
-              style={{
-                padding: '0.75rem 1rem',
-                background: 'rgba(239, 68, 68, 0.12)',
-                border: '1px solid rgba(239, 68, 68, 0.3)',
-                borderRadius: 'var(--radius-sm)',
-                color: '#fca5a5',
-                fontSize: '0.8rem',
-                marginBottom: '1rem',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-              }}
-            >
-              <AlertCircle size={16} color="var(--color-danger)" />
-              <span>{proposalsError}</span>
-            </div>
-          )}
-
-          {/* Empty State */}
-          {!historyLoading && !historyError && decisionHistory.length === 0 && (
-            <div className="card">
-              <div className="empty-state">
-                <Clock size={36} />
-                <p>No regulatory decisions recorded in the current session yet.</p>
-                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
-                  Decisions made in the <strong>Decision Panel</strong> (REUSE, ADAPT, or REJECT) will automatically be logged here with complete reviewer attribution, clinical rationale, and timestamps.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Decision History Records List */}
-          {!historyLoading && decisionHistory.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-              {decisionHistory.map((d, idx) => {
-                const isReuse = d.decision === 'REUSE';
-                const isAdapt = d.decision === 'ADAPT';
-                const isReject = d.decision === 'REJECT';
-
-                return (
-                  <div
-                    key={d.decision_id || idx}
-                    style={{
-                      background: 'var(--bg-surface)',
-                      border: '1px solid var(--border-subtle)',
-                      borderRadius: 'var(--radius-sm)',
-                      padding: '1rem',
-                    }}
-                  >
-                    {/* Decision Header */}
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        marginBottom: '0.65rem',
-                        flexWrap: 'wrap',
-                        gap: '0.5rem',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span
-                          className={`badge badge-${d.decision.toLowerCase()}`}
-                          style={{
-                            fontSize: '0.74rem',
-                            padding: '0.25rem 0.6rem',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '0.35rem',
-                          }}
-                        >
-                          {isReuse && <CheckCircle2 size={12} />}
-                          {isAdapt && <Edit3 size={12} />}
-                          {isReject && <XCircle size={12} />}
-                          {d.decision}
-                        </span>
-
-                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                          Decision ID: <code>{d.decision_id || 'Not available'}</code>
-                        </span>
-                      </div>
-
-                      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                        <Clock size={12} />
-                        <span>Decided: {formatTimestamp(d.decided_at)}</span>
-                      </div>
-                    </div>
-
-                    {/* Metadata Grid */}
-                    <div
-                      className="grid-3"
-                      style={{
-                        background: 'var(--bg-main)',
-                        padding: '0.65rem 0.85rem',
-                        borderRadius: 'var(--radius-sm)',
-                        marginBottom: '0.75rem',
-                        gap: '0.5rem',
-                        fontSize: '0.75rem',
-                      }}
-                    >
-                      <div>
-                        <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '0.68rem', textTransform: 'uppercase' }}>
-                          Reviewer Attribution
-                        </span>
-                        <strong style={{ color: '#fff' }}>{d.reviewer_name || 'Not available in returned data'}</strong>
-                      </div>
-
-                      <div>
-                        <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '0.68rem', textTransform: 'uppercase' }}>
-                          Target Content ID
-                        </span>
-                        <code>{d.target_content_id || 'Not available'}</code>
-                      </div>
-
-                      <div>
-                        <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '0.68rem', textTransform: 'uppercase' }}>
-                          Candidate ID
-                        </span>
-                        <code>{d.candidate_id || 'None / Not specified'}</code>
-                      </div>
-                    </div>
-
-                    {/* Reviewer Notes / Rationale */}
-                    <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: isAdapt && d.adaptation_instructions ? '0.5rem' : '0' }}>
-                      <strong style={{ color: 'var(--text-muted)' }}>Reviewer Notes / Clinical Justification: </strong>
-                      <span style={{ color: '#e2e8f0' }}>{d.reviewer_notes || 'No notes recorded'}</span>
-                    </div>
-
-                    {/* Adaptation Instructions (for ADAPT decisions only) */}
-                    {isAdapt && d.adaptation_instructions && (
-                      <div
-                        style={{
-                          marginTop: '0.5rem',
-                          padding: '0.5rem 0.75rem',
-                          background: 'rgba(147, 51, 234, 0.08)',
-                          borderLeft: '2px solid #a855f7',
-                          borderRadius: 'var(--radius-sm)',
-                          fontSize: '0.75rem',
-                        }}
-                      >
-                        <strong style={{ color: '#c084fc', display: 'block', marginBottom: '0.2rem' }}>
-                          Human Adaptation Instructions:
-                        </strong>
-                        <span style={{ color: '#e2e8f0' }}>{d.adaptation_instructions}</span>
-                      </div>
-                    )}
-
-                    {/* REJECT Termination Guarantee Note */}
-                    {isReject && (
-                      <div
-                        style={{
-                          marginTop: '0.5rem',
-                          padding: '0.5rem 0.75rem',
-                          background: 'rgba(239, 68, 68, 0.08)',
-                          borderLeft: '2px solid #ef4444',
-                          borderRadius: 'var(--radius-sm)',
-                          fontSize: '0.73rem',
-                          color: '#fca5a5',
-                        }}
-                      >
-                        <strong>Rejection Safeguard:</strong> This candidate was declined by the human reviewer. Downstream change proposal formulation was blocked, no changes were compiled, and original draft content remains strictly preserved.
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Formulated Session Proposals Lifecycle Table (if any proposals exist) */}
-          {proposals.length > 0 && (
-            <div style={{ marginTop: '1.75rem' }}>
+          {/* 4. PROPOSALS LIFECYCLE (Filtered) */}
+          {displayedProposals.length > 0 && (
+            <div style={{ marginBottom: '1.5rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
                 <GitPullRequest size={16} color="var(--color-brand)" />
                 <h4 style={{ fontFamily: 'var(--font-heading)', fontSize: '0.95rem', color: '#fff', margin: 0 }}>
-                  Session Change Proposals Lifecycle ({proposals.length})
+                  Change Proposals Lifecycle ({displayedProposals.length})
                 </h4>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                {proposals.map((p, idx) => (
+                {displayedProposals.map((p, idx) => (
                   <div
                     key={p.change_id || idx}
                     style={{
@@ -1873,6 +1967,443 @@ export default function ApprovedChangeReport({ approvedReport }) {
               </div>
             </div>
           )}
+
+          {/* 5. SECONDARY EXPANDABLE: CRYPTOGRAPHIC AUDIT VERIFICATION */}
+          <div style={{ marginBottom: '2rem' }}>
+            <details
+              style={{
+                background: 'var(--bg-surface)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '1rem',
+              }}
+            >
+              <summary
+                style={{
+                  cursor: 'pointer',
+                  fontWeight: '600',
+                  fontSize: '0.92rem',
+                  color: '#fff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  userSelect: 'none',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <ShieldCheck size={18} color="var(--color-brand)" />
+                  <span>Cryptographic Audit Verification</span>
+                </div>
+                <span
+                  className="badge"
+                  style={{
+                    fontSize: '0.7rem',
+                    background: 'rgba(59, 130, 246, 0.12)',
+                    color: '#93c5fd',
+                  }}
+                >
+                  SHA-256 Tamper Evident Details ▾
+                </span>
+              </summary>
+
+              <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border-subtle)' }}>
+                {/* Verification Control & Action */}
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: '0.75rem',
+                    marginBottom: '1rem',
+                  }}
+                >
+                  <div>
+                    <p style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', margin: 0 }}>
+                      Tamper-evident SHA-256 back-linked hash chain covering all human decisions, proposals, validations, and authorizations.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleVerifyChain}
+                    disabled={verifying}
+                    className="btn btn-primary"
+                    style={{ fontSize: '0.82rem', padding: '0.45rem 0.9rem' }}
+                    title="Execute SHA-256 back-link and canonical payload verification via GET /audit/verify"
+                  >
+                    {verifying ? (
+                      <>
+                        <RefreshCw size={13} className="animate-spin" /> Verifying Chain...
+                      </>
+                    ) : (
+                      <>
+                        <ShieldCheck size={14} /> Verify Audit Chain
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Verification Status Display */}
+                {verifying && (
+                  <div
+                    style={{
+                      padding: '0.75rem 1rem',
+                      background: 'rgba(59, 130, 246, 0.1)',
+                      border: '1px solid rgba(59, 130, 246, 0.3)',
+                      borderRadius: 'var(--radius-sm)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.6rem',
+                      fontSize: '0.8rem',
+                      color: '#93c5fd',
+                      marginBottom: '1rem',
+                    }}
+                  >
+                    <RefreshCw size={16} className="animate-spin" />
+                    <span>Executing cryptographic verification across all audit records...</span>
+                  </div>
+                )}
+
+                {!verifying && verificationResult && verificationResult.valid === true && (
+                  <div
+                    style={{
+                      padding: '0.85rem 1rem',
+                      background: 'rgba(21, 128, 61, 0.08)',
+                      border: '1px solid rgba(21, 128, 61, 0.25)',
+                      borderRadius: 'var(--radius-sm)',
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '0.65rem',
+                      marginBottom: '1rem',
+                    }}
+                  >
+                    <CheckCircle2 size={18} color="var(--color-success)" style={{ flexShrink: 0, marginTop: '2px' }} />
+                    <div>
+                      <div style={{ fontWeight: '600', color: 'var(--color-success)', fontSize: '0.84rem' }}>
+                        ✓ Audit chain verified
+                      </div>
+                      <div style={{ fontSize: '0.76rem', color: '#166534', marginTop: '0.2rem' }}>
+                        The recorded audit history passed SHA-256 integrity verification. All <strong>{verificationResult.checked_event_count}</strong> audit events were verified. Every canonical payload matches its stored hash, and all sequential back-links are intact. Zero tampering detected.
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {!verifying && verificationResult && verificationResult.valid === false && (
+                  <div
+                    style={{
+                      padding: '0.85rem 1rem',
+                      background: 'rgba(185, 28, 28, 0.08)',
+                      border: '1px solid rgba(185, 28, 28, 0.25)',
+                      borderRadius: 'var(--radius-sm)',
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '0.65rem',
+                      marginBottom: '1rem',
+                    }}
+                  >
+                    <ShieldAlert size={18} color="var(--color-danger)" style={{ flexShrink: 0, marginTop: '2px' }} />
+                    <div>
+                      <div style={{ fontWeight: '600', color: 'var(--color-danger)', fontSize: '0.84rem' }}>
+                        Audit Chain Verification Discrepancy Detected
+                      </div>
+                      <div style={{ fontSize: '0.76rem', color: '#991b1b', marginTop: '0.2rem' }}>
+                        Checked {verificationResult.checked_event_count} events before encountering discrepancy.
+                        {verificationResult.first_invalid_event_id && (
+                          <span style={{ display: 'block', marginTop: '0.2rem' }}>
+                            First invalid event ID: <code>{verificationResult.first_invalid_event_id}</code>
+                          </span>
+                        )}
+                        {verificationResult.reason && (
+                          <span style={{ display: 'block', marginTop: '0.2rem' }}>
+                            Diagnostic reason: {verificationResult.reason}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {!verifying && verificationError && (
+                  <div
+                    style={{
+                      padding: '0.75rem 1rem',
+                      background: 'rgba(185, 28, 28, 0.08)',
+                      border: '1px solid rgba(185, 28, 28, 0.25)',
+                      borderRadius: 'var(--radius-sm)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.6rem',
+                      fontSize: '0.8rem',
+                      color: '#991b1b',
+                      marginBottom: '1rem',
+                    }}
+                  >
+                    <AlertCircle size={16} color="var(--color-danger)" />
+                    <span>Verification Request Error: {verificationError}</span>
+                  </div>
+                )}
+
+                {!verifying && !verificationResult && !verificationError && (
+                  <div
+                    style={{
+                      padding: '0.75rem 1rem',
+                      background: 'rgba(100, 116, 139, 0.08)',
+                      border: '1px solid rgba(100, 116, 139, 0.2)',
+                      borderRadius: 'var(--radius-sm)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.6rem',
+                      fontSize: '0.78rem',
+                      color: 'var(--text-secondary)',
+                      marginBottom: '1rem',
+                    }}
+                  >
+                    <Shield size={16} color="var(--text-muted)" />
+                    <span>
+                      <strong>Chain Status:</strong> Click <strong>Verify Audit Chain</strong> to mathematically validate all SHA-256 back-links against stored canonical payloads.
+                    </span>
+                  </div>
+                )}
+
+                {/* Technical Audit Event Ledger */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {displayedAuditEvents.map((evt, idx) => {
+                    const isExpanded = expandedEventId === `session_${evt.event_id}`;
+                    const prevHashDisplay = evt.previous_event_hash
+                      ? truncateHash(evt.previous_event_hash, 12)
+                      : '[Genesis Event - No Predecessor]';
+                    const eventHashDisplay = truncateHash(evt.event_hash, 12);
+                    const isCopied = copiedHash === evt.event_hash;
+
+                    return (
+                      <div
+                        key={evt.event_id || idx}
+                        style={{
+                          background: 'var(--bg-main)',
+                          border: '1px solid var(--border-subtle)',
+                          borderRadius: 'var(--radius-sm)',
+                          padding: '0.85rem 1rem',
+                        }}
+                      >
+                        {/* Event Header */}
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            flexWrap: 'wrap',
+                            gap: '0.5rem',
+                            marginBottom: '0.5rem',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <span
+                              style={{
+                                fontSize: '0.72rem',
+                                fontWeight: '700',
+                                background: 'rgba(13, 148, 136, 0.1)',
+                                color: 'var(--color-brand)',
+                                padding: '0.15rem 0.45rem',
+                                borderRadius: '3px',
+                              }}
+                            >
+                              #{idx + 1}
+                            </span>
+                            <strong style={{ fontSize: '0.82rem', color: 'var(--text-primary)' }}>
+                              {formatEventType(evt.event_type)}
+                            </strong>
+                            <code
+                              style={{
+                                fontSize: '0.68rem',
+                                background: '#edf0f5',
+                                padding: '0.1rem 0.35rem',
+                                borderRadius: '3px',
+                                color: 'var(--text-secondary)',
+                              }}
+                            >
+                              {evt.event_type}
+                            </code>
+                          </div>
+
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                            <Clock size={12} />
+                            <span>{formatTimestamp(evt.occurred_at)}</span>
+                          </div>
+                        </div>
+
+                        {/* Event Metadata Grid */}
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                            gap: '0.5rem',
+                            background: '#ffffff',
+                            padding: '0.5rem 0.75rem',
+                            borderRadius: 'var(--radius-sm)',
+                            fontSize: '0.74rem',
+                            marginBottom: '0.5rem',
+                            border: '1px solid var(--border-subtle)',
+                          }}
+                        >
+                          <div>
+                            <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '0.68rem' }}>
+                              Actor / Reviewer
+                            </span>
+                            <span style={{ color: 'var(--text-primary)', fontWeight: '500' }}>
+                              {evt.reviewer_name || 'System / Regulatory User'}
+                            </span>
+                          </div>
+
+                          <div>
+                            <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '0.68rem' }}>
+                              Status Transition
+                            </span>
+                            <span style={{ color: 'var(--color-brand)', fontWeight: '500' }}>
+                              {evt.previous_status ? `${evt.previous_status} → ` : ''}
+                              {evt.new_status || 'TRANSITION'}
+                            </span>
+                          </div>
+
+                          <div>
+                            <span style={{ color: 'var(--text-muted)', display: 'block', fontSize: '0.68rem' }}>
+                              Linked Identifier
+                            </span>
+                            <code style={{ fontSize: '0.7rem' }}>
+                              {evt.change_id || evt.decision_id || evt.report_id || evt.event_id}
+                            </code>
+                          </div>
+                        </div>
+
+                        {/* Event Hashes & Traceability */}
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            flexWrap: 'wrap',
+                            gap: '0.5rem',
+                            fontSize: '0.72rem',
+                            paddingTop: '0.25rem',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                            <div>
+                              <span style={{ color: 'var(--text-muted)' }}>SHA-256: </span>
+                              <code
+                                title={evt.event_hash}
+                                style={{ color: 'var(--color-brand)', fontWeight: '600' }}
+                              >
+                                {eventHashDisplay}
+                              </code>
+                              <button
+                                type="button"
+                                onClick={() => handleCopyHash(evt.event_hash)}
+                                style={{
+                                  background: 'transparent',
+                                  border: 'none',
+                                  color: isCopied ? 'var(--color-success)' : 'var(--text-muted)',
+                                  cursor: 'pointer',
+                                  padding: '0 0.25rem',
+                                  verticalAlign: 'middle',
+                                }}
+                                title={isCopied ? 'Copied!' : 'Copy full 64-char SHA-256 hash'}
+                              >
+                                <Copy size={11} />
+                              </button>
+                              {isCopied && (
+                                <span style={{ fontSize: '0.68rem', color: 'var(--color-success)', marginLeft: '0.2rem' }}>
+                                  Copied!
+                                </span>
+                              )}
+                            </div>
+
+                            <div>
+                              <span style={{ color: 'var(--text-muted)' }}>Prev Link: </span>
+                              <code
+                                title={evt.previous_event_hash || 'Genesis event'}
+                                style={{ color: evt.previous_event_hash ? 'var(--text-secondary)' : 'var(--color-success)' }}
+                              >
+                                {prevHashDisplay}
+                              </code>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => setExpandedEventId(isExpanded ? null : `session_${evt.event_id}`)}
+                            className="btn btn-secondary"
+                            style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem' }}
+                          >
+                            {isExpanded ? (
+                              <>
+                                <ChevronUp size={11} /> Hide Payload
+                              </>
+                            ) : (
+                              <>
+                                <ChevronDown size={11} /> Inspect Details
+                              </>
+                            )}
+                          </button>
+                        </div>
+
+                        {/* Expandable Canonical Detail */}
+                        {isExpanded && (
+                          <div
+                            style={{
+                              marginTop: '0.65rem',
+                              padding: '0.65rem 0.85rem',
+                              background: '#ffffff',
+                              borderRadius: 'var(--radius-sm)',
+                              border: '1px solid var(--border-subtle)',
+                              fontSize: '0.72rem',
+                            }}
+                          >
+                            <div style={{ marginBottom: '0.4rem' }}>
+                              <strong style={{ color: 'var(--text-secondary)' }}>Event ID: </strong>
+                              <code>{evt.event_id}</code>
+                            </div>
+                            <div style={{ marginBottom: '0.4rem', wordBreak: 'break-all' }}>
+                              <strong style={{ color: 'var(--text-secondary)' }}>Full SHA-256 Digest: </strong>
+                              <code style={{ color: 'var(--color-brand)', fontWeight: '600' }}>{evt.event_hash}</code>
+                            </div>
+                            {evt.previous_event_hash && (
+                              <div style={{ marginBottom: '0.4rem', wordBreak: 'break-all' }}>
+                                <strong style={{ color: 'var(--text-secondary)' }}>Previous SHA-256 Link: </strong>
+                                <code style={{ color: 'var(--text-primary)' }}>{evt.previous_event_hash}</code>
+                              </div>
+                            )}
+                            {evt.details && Object.keys(evt.details).length > 0 && (
+                              <div style={{ marginTop: '0.4rem' }}>
+                                <strong style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '0.2rem' }}>
+                                  Canonical Event Details:
+                                </strong>
+                                <pre
+                                  style={{
+                                    background: '#f8fafc',
+                                    padding: '0.5rem',
+                                    borderRadius: '3px',
+                                    margin: 0,
+                                    fontSize: '0.68rem',
+                                    color: 'var(--text-primary)',
+                                    border: '1px solid var(--border-subtle)',
+                                    overflowX: 'auto',
+                                  }}
+                                >
+                                  {JSON.stringify(evt.details, null, 2)}
+                                </pre>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </details>
+          </div>
         </div>
       )}
     </div>
