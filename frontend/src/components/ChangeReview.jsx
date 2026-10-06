@@ -854,8 +854,92 @@ export default function ChangeReview({ activeDecision, comparisonContext, onRepo
 
                             {/* Matching Basis / Evidence */}
                             {occ.reason && (
-                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
+                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>
                                 <strong>Matching Basis:</strong> {occ.reason}
+                              </div>
+                            )}
+
+                            {/* Phase 6G.4: Advisory Occurrence Recommendation */}
+                            {occ.recommended_action && (
+                              <div
+                                style={{
+                                  margin: '0.45rem 0',
+                                  padding: '0.6rem 0.8rem',
+                                  background: 'var(--bg-surface)',
+                                  borderRadius: 'var(--radius-sm)',
+                                  border: `1px solid ${
+                                    occ.recommended_action === 'CONFIRM'
+                                      ? 'rgba(16, 185, 129, 0.35)'
+                                      : occ.recommended_action === 'EXCLUDE'
+                                      ? 'rgba(239, 68, 68, 0.35)'
+                                      : 'rgba(245, 158, 11, 0.35)'
+                                  }`,
+                                }}
+                              >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '0.25rem' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                                    <span
+                                      className="badge"
+                                      style={{
+                                        fontSize: '0.68rem',
+                                        fontWeight: '700',
+                                        background:
+                                          occ.recommended_action === 'CONFIRM'
+                                            ? 'rgba(16, 185, 129, 0.2)'
+                                            : occ.recommended_action === 'EXCLUDE'
+                                            ? 'rgba(239, 68, 68, 0.2)'
+                                            : 'rgba(245, 158, 11, 0.2)',
+                                        color:
+                                          occ.recommended_action === 'CONFIRM'
+                                            ? 'var(--color-success)'
+                                            : occ.recommended_action === 'EXCLUDE'
+                                            ? 'var(--color-danger)'
+                                            : 'var(--color-warning)',
+                                      }}
+                                    >
+                                      SYSTEM RECOMMENDATION: {occ.recommended_action.replace('_', ' ')}
+                                    </span>
+                                    <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                                      Advisory Recommendation Only — Human Reviewer Confirmation Required
+                                    </span>
+                                  </div>
+
+                                  {/* STEP 8: Apply Recommendation Button (preselects local control only; does not submit) */}
+                                  {(occ.recommended_action === 'CONFIRM' || occ.recommended_action === 'EXCLUDE') && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const choice = occ.recommended_action === 'CONFIRM' ? 'CONFIRMED' : 'EXCLUDED';
+                                        setOccurrenceSelections((prev) => ({
+                                          ...prev,
+                                          [occKey]: choice,
+                                        }));
+                                      }}
+                                      className="btn btn-secondary"
+                                      style={{
+                                        fontSize: '0.7rem',
+                                        padding: '0.2rem 0.5rem',
+                                        cursor: 'pointer',
+                                        borderColor:
+                                          occ.recommended_action === 'CONFIRM'
+                                            ? 'rgba(16, 185, 129, 0.4)'
+                                            : 'rgba(239, 68, 68, 0.4)',
+                                        color:
+                                          occ.recommended_action === 'CONFIRM'
+                                            ? 'var(--color-success)'
+                                            : 'var(--color-danger)',
+                                      }}
+                                    >
+                                      Apply Recommendation ({occ.recommended_action === 'CONFIRM' ? 'Confirm' : 'Exclude'})
+                                    </button>
+                                  )}
+                                </div>
+
+                                {occ.recommendation_reason && (
+                                  <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                                    <strong>Reason:</strong> {occ.recommendation_reason}
+                                  </div>
+                                )}
                               </div>
                             )}
 
@@ -1085,6 +1169,21 @@ export default function ChangeReview({ activeDecision, comparisonContext, onRepo
                                     Exclude / preserve
                                   </span>
                                 </label>
+
+                                {currentSelection && currentSelection !== occ.status && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleOccurrenceConfirmation(prop, occKey, currentSelection)}
+                                    className="btn btn-primary"
+                                    style={{
+                                      fontSize: '0.68rem',
+                                      padding: '0.15rem 0.5rem',
+                                      marginLeft: '0.4rem',
+                                    }}
+                                  >
+                                    Save Decision ({currentSelection === 'CONFIRMED' ? 'Confirm' : 'Exclude'})
+                                  </button>
+                                )}
                               </div>
                             </div>
                           </div>

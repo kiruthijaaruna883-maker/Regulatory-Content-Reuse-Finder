@@ -14,7 +14,7 @@ Original source regulatory documents remain completely unchanged.
 
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from app.config import settings
 from app.models.comparison import EvidenceTrace
 from app.models.content import KeyInformation, RegulatoryContentItem
@@ -321,8 +321,13 @@ class RegulatoryDocumentChangeAgent:
                         f"Validated against false-match protection for drug entity integrity."
                     )
 
+                    relevance_val = "DIRECT" if match_type in ("exact_match", "normalized_match") else "INDIRECT"
+                    recommended_action: Optional[Literal["CONFIRM", "EXCLUDE", "REVIEW_REQUIRED"]] = "REVIEW_REQUIRED"
+                    recommendation_reason: Optional[str] = None
+                    recommendation_confidence: Optional[float] = None
+
                     try:
-                        match_res, _, _, _ = self.comparator.compare(
+                        match_res, _, _, false_warning = self.comparator.compare(
                             target_text=target_text or clean_phrase,
                             candidate=cand_item,
                             target_key_info=target_key_info,
@@ -349,8 +354,70 @@ class RegulatoryDocumentChangeAgent:
                             f"Validated against false-match protection for drug entity integrity. "
                             f"6D alignment evidence: {', '.join(dim_summary_parts)}."
                         )
+
+                        # Evaluate advisory recommendation grounded in 6D evidence
+                        meaning_st = match_res.meaning.status.value if hasattr(match_res.meaning.status, "value") else str(match_res.meaning.status)
+                        key_st = match_res.key_information.status.value if hasattr(match_res.key_information.status, "value") else str(match_res.key_information.status)
+                        context_st = match_res.context.status.value if hasattr(match_res.context.status, "value") else str(match_res.context.status)
+
+                        if false_warning:
+                            clean_warn = false_warning.replace("FALSE MATCH WARNING: ", "").strip()
+                            recommended_action = "EXCLUDE"
+                            recommendation_reason = f"Exclusion recommended due to critical false-match warning: {clean_warn}."
+                        elif key_st == "MISMATCH":
+                            recommended_action = "EXCLUDE"
+                            recommendation_reason = f"Exclusion recommended due to critical Key Information mismatch in section '{sec_name}': {match_res.key_information.details}"
+                        elif context_st == "MISMATCH":
+                            recommended_action = "EXCLUDE"
+                            recommendation_reason = f"Exclusion recommended due to incompatible regulatory context in section '{sec_name}': {match_res.context.details}"
+                        elif meaning_st == "MISMATCH":
+                            recommended_action = "EXCLUDE"
+                            recommendation_reason = f"Exclusion recommended due to conflicting regulatory meaning in section '{sec_name}': {match_res.meaning.details}"
+                        elif (
+                            relevance_val == "DIRECT"
+                            and key_st == "MATCH"
+                            and meaning_st in ("MATCH", "PARTIAL")
+                            and context_st != "MISMATCH"
+                        ):
+                            recommended_action = "CONFIRM"
+                            recommendation_reason = (
+                                f"Direct {match_type.replace('_', ' ')} with aligned key clinical information "
+                                f"and compatible regulatory context in section '{sec_name}'."
+                            )
+                        else:
+                            recommended_action = "REVIEW_REQUIRED"
+                            if match_type == "semantic_match":
+                                sem_score = semantic_candidates.get(text)
+                                if sem_score is not None:
+                                    recommendation_confidence = sem_score
+                                    recommendation_reason = (
+                                        f"Semantic retrieval match ({sem_score:.2f}) with indirect alignment. "
+                                        f"Professional reviewer determination required."
+                                    )
+                                else:
+                                    recommendation_reason = "Semantic retrieval match with indirect alignment. Professional reviewer determination required."
+                            elif match_type == "structured_match":
+                                recommendation_reason = (
+                                    f"Structured clinical entity alignment in section '{sec_name}'. "
+                                    f"Reviewer verification required for posology and section-specific context."
+                                )
+                            elif relevance_val == "DIRECT" and meaning_st == "PARTIAL":
+                                recommendation_reason = (
+                                    f"Direct text sequence with partial dimensional alignment in section '{sec_name}'. "
+                                    f"Reviewer judgment required."
+                                )
+                            else:
+                                recommendation_reason = (
+                                    f"Indirect or partial dimensional evidence in section '{sec_name}' requires "
+                                    f"professional reviewer determination."
+                                )
                     except Exception as comp_exc:
                         logger.warning("6D comparison for occurrence in %s encountered error: %s", sec_name, comp_exc)
+                        recommended_action = "REVIEW_REQUIRED"
+                        recommendation_reason = (
+                            f"Occurrence in section '{sec_name}' requires manual review "
+                            f"(6D comparison unavailable: {comp_exc})."
+                        )
 
                     occurrences.append(
                         RelatedOccurrence(
@@ -361,13 +428,17 @@ class RegulatoryDocumentChangeAgent:
                             match_type=match_type,
                             matched_text=matched_excerpt,
                             current_text=text[:300],
-                            relevance="DIRECT" if match_type in ("exact_match", "normalized_match") else "INDIRECT",
+                            relevance=relevance_val,
                             source_identifier=sec.get("source_identifier"),
                             source_url=sec.get("source_url"),
                             reason=reason,
                             evidence_explanation=evidence_explanation,
+                            status="PENDING",
                             dimensional_evidence=dimensional_evidence,
                             dimensional_scores=dimensional_scores,
+                            recommended_action=recommended_action,
+                            recommendation_reason=recommendation_reason,
+                            recommendation_confidence=recommendation_confidence,
                         )
                     )
 

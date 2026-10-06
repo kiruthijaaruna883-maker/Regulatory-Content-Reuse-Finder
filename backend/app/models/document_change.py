@@ -89,6 +89,18 @@ class RelatedOccurrence(BaseModel):
         default=None,
         description="Six-dimensional alignment scores for this occurrence.",
     )
+    recommended_action: Optional[Literal["CONFIRM", "EXCLUDE", "REVIEW_REQUIRED"]] = Field(
+        default=None,
+        description="Advisory system recommendation: CONFIRM, EXCLUDE, or REVIEW_REQUIRED (advisory proposal only; human review mandatory)",
+    )
+    recommendation_reason: Optional[str] = Field(
+        default=None,
+        description="Factual evidence-based rationale grounding the advisory occurrence recommendation",
+    )
+    recommendation_confidence: Optional[float] = Field(
+        default=None,
+        description="Direct reused score/similarity if available; None if not directly calculated",
+    )
 
 
 class ConfirmOccurrencesRequest(BaseModel):
