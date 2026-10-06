@@ -26,6 +26,7 @@ from app.models.comparison import (
     StructuredEvidence,
 )
 from app.models.content import KeyInformation, RegulatoryContentItem, RegulatoryContentType
+from app.models.document_change import ReviewDecisionType
 from app.services.content_classifier import ContentClassifier
 from app.services.key_information_extractor import KeyInformationExtractor
 from app.services.multi_dimensional_comparator import MultiDimensionalComparator
@@ -181,6 +182,15 @@ class RegulatoryContentAnalysisAgent:
             if false_match_warning:
                 false_matches_count += 1
 
+            rec_decision, rec_reason, rec_conf = self.comparator.evaluate_recommendation(
+                match=match_result,
+                differences=diffs,
+                false_match_warning=false_match_warning,
+                similarity_score=scores.get(cand.content_id, 0.75),
+                target_info=curr_key_info,
+                candidate_info=cand.key_information,
+            )
+
             comp_cand = ComparisonCandidate(
                 candidate_id=f"cand_{cand.content_id}",
                 content_item=cand,
@@ -192,14 +202,25 @@ class RegulatoryContentAnalysisAgent:
                 evidence=[evidence],
                 false_match_warning=false_match_warning,
                 requires_human_review=True,
+                recommended_decision=rec_decision,
+                recommendation_reason=rec_reason,
+                recommendation_confidence=rec_conf,
             )
             comparison_candidates.append(comp_cand)
 
-        # Sort candidates: prioritize items without false-match warnings, then by similarity score
-        comparison_candidates.sort(
-            key=lambda c: (c.false_match_warning is None, c.similarity_score or 0.0),
-            reverse=True,
-        )
+        # Sort candidates: prioritize items without false-match warnings, then by recommended_decision (REUSE > ADAPT > REJECT), then similarity
+        def _sort_candidate_key(c: ComparisonCandidate):
+            no_warning = c.false_match_warning is None
+            tier = {
+                ReviewDecisionType.REUSE: 3,
+                ReviewDecisionType.ADAPT: 2,
+                ReviewDecisionType.REJECT: 1,
+            }.get(c.recommended_decision, 0)
+            conf = c.recommendation_confidence or 0.0
+            sim = c.similarity_score or 0.0
+            return (no_warning, tier, conf, sim)
+
+        comparison_candidates.sort(key=_sort_candidate_key, reverse=True)
 
         summary = (
             f"Agent 1 evaluated {len(comparison_candidates)} candidate(s). "

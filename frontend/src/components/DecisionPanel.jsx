@@ -67,6 +67,20 @@ export default function DecisionPanel({ comparisonData, onDecisionRecorded }) {
       ? 'Critical regulatory discrepancy detected between target and candidate reference.'
       : null);
 
+  // Advisory Recommendation Signals (Phase 6G.2)
+  const recommendedDecision =
+    primaryCandidate?.recommended_decision ||
+    candidateItem?.recommended_decision ||
+    null;
+  const recommendationReason =
+    primaryCandidate?.recommendation_reason ||
+    candidateItem?.recommendation_reason ||
+    null;
+  const recommendationConfidence =
+    primaryCandidate?.recommendation_confidence ??
+    candidateItem?.recommendation_confidence ??
+    null;
+
   const primaryEvidence = primaryCandidate?.evidence?.[0] || null;
   const observedFacts = primaryEvidence?.observed_from_source || null;
   const targetFacts = primaryEvidence?.target_facts || null;
@@ -495,6 +509,85 @@ export default function DecisionPanel({ comparisonData, onDecisionRecorded }) {
           </span>
         </div>
 
+        {/* Advisory Recommendation Banner (Phase 6G.2) */}
+        {recommendedDecision && (
+          <div
+            style={{
+              marginBottom: '1.25rem',
+              padding: '0.9rem 1.15rem',
+              background:
+                recommendedDecision === 'REUSE'
+                  ? 'rgba(21, 128, 61, 0.08)'
+                  : recommendedDecision === 'ADAPT'
+                  ? 'rgba(180, 83, 9, 0.08)'
+                  : 'rgba(185, 28, 28, 0.08)',
+              border: `1.5px solid ${
+                recommendedDecision === 'REUSE'
+                  ? 'rgba(21, 128, 61, 0.35)'
+                  : recommendedDecision === 'ADAPT'
+                  ? 'rgba(180, 83, 9, 0.35)'
+                  : 'rgba(185, 28, 28, 0.35)'
+              }`,
+              borderRadius: 'var(--radius-md)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span
+                  className="badge"
+                  style={{
+                    fontSize: '0.76rem',
+                    fontWeight: '700',
+                    padding: '0.2rem 0.55rem',
+                    background:
+                      recommendedDecision === 'REUSE'
+                        ? 'rgba(21, 128, 61, 0.18)'
+                        : recommendedDecision === 'ADAPT'
+                        ? 'rgba(180, 83, 9, 0.18)'
+                        : 'rgba(185, 28, 28, 0.18)',
+                    color:
+                      recommendedDecision === 'REUSE'
+                        ? 'var(--color-success)'
+                        : recommendedDecision === 'ADAPT'
+                        ? 'var(--color-warning)'
+                        : 'var(--color-danger)',
+                  }}
+                >
+                  {recommendedDecision}
+                </span>
+                <strong style={{ fontSize: '0.88rem', color: 'var(--text-primary)' }}>
+                  ADVISORY RECOMMENDATION — HUMAN GOVERNANCE REQUIRED
+                </strong>
+              </div>
+              {recommendationConfidence !== null && recommendationConfidence !== undefined && (
+                <span
+                  style={{
+                    fontSize: '0.74rem',
+                    color: 'var(--text-secondary)',
+                    fontWeight: '600',
+                    background: 'var(--bg-surface)',
+                    padding: '0.2rem 0.5rem',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border-subtle)',
+                  }}
+                >
+                  Advisory Confidence: {Math.round(recommendationConfidence * 100)}%
+                </span>
+              )}
+            </div>
+
+            {recommendationReason && (
+              <p style={{ fontSize: '0.82rem', color: 'var(--text-primary)', margin: '0.3rem 0', lineHeight: 1.45 }}>
+                {recommendationReason}
+              </p>
+            )}
+
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block' }}>
+              Advisory output only. You must evaluate clinical alignment independently and deliberately select your decision below. You may adopt or override this recommendation.
+            </span>
+          </div>
+        )}
+
         {/* Decision Option Buttons: Explicit Human Selection */}
         <div style={{ marginBottom: '1.5rem' }}>
           <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.6rem', fontWeight: '500' }}>
@@ -513,8 +606,24 @@ export default function DecisionPanel({ comparisonData, onDecisionRecorded }) {
                 padding: '1.1rem',
                 borderWidth: selectedDecision === 'REUSE' ? '2px' : '1px',
                 borderColor: selectedDecision === 'REUSE' ? 'var(--color-success)' : 'var(--border-subtle)',
+                position: 'relative',
               }}
             >
+              {recommendedDecision === 'REUSE' && (
+                <span
+                  className="badge"
+                  style={{
+                    fontSize: '0.68rem',
+                    fontWeight: '700',
+                    background: 'rgba(21, 128, 61, 0.18)',
+                    color: 'var(--color-success)',
+                    border: '1px solid rgba(21, 128, 61, 0.35)',
+                    marginBottom: '0.35rem',
+                  }}
+                >
+                  System Recommended
+                </span>
+              )}
               <CheckCircle2 size={24} color={selectedDecision === 'REUSE' ? 'var(--color-success)' : 'var(--text-muted)'} />
               <strong style={{ marginTop: '0.4rem', fontSize: '1rem' }}>REUSE</strong>
               <span style={{ fontSize: '0.72rem', opacity: 0.85, textAlign: 'center', marginTop: '0.2rem' }}>
@@ -534,8 +643,24 @@ export default function DecisionPanel({ comparisonData, onDecisionRecorded }) {
                 padding: '1.1rem',
                 borderWidth: selectedDecision === 'ADAPT' ? '2px' : '1px',
                 borderColor: selectedDecision === 'ADAPT' ? 'var(--color-warning)' : 'var(--border-subtle)',
+                position: 'relative',
               }}
             >
+              {recommendedDecision === 'ADAPT' && (
+                <span
+                  className="badge"
+                  style={{
+                    fontSize: '0.68rem',
+                    fontWeight: '700',
+                    background: 'rgba(180, 83, 9, 0.18)',
+                    color: 'var(--color-warning)',
+                    border: '1px solid rgba(180, 83, 9, 0.35)',
+                    marginBottom: '0.35rem',
+                  }}
+                >
+                  System Recommended
+                </span>
+              )}
               <Sliders size={24} color={selectedDecision === 'ADAPT' ? 'var(--color-warning)' : 'var(--text-muted)'} />
               <strong style={{ marginTop: '0.4rem', fontSize: '1rem' }}>ADAPT</strong>
               <span style={{ fontSize: '0.72rem', opacity: 0.85, textAlign: 'center', marginTop: '0.2rem' }}>
@@ -555,8 +680,24 @@ export default function DecisionPanel({ comparisonData, onDecisionRecorded }) {
                 padding: '1.1rem',
                 borderWidth: selectedDecision === 'REJECT' ? '2px' : '1px',
                 borderColor: selectedDecision === 'REJECT' ? 'var(--color-danger)' : 'var(--border-subtle)',
+                position: 'relative',
               }}
             >
+              {recommendedDecision === 'REJECT' && (
+                <span
+                  className="badge"
+                  style={{
+                    fontSize: '0.68rem',
+                    fontWeight: '700',
+                    background: 'rgba(185, 28, 28, 0.18)',
+                    color: 'var(--color-danger)',
+                    border: '1px solid rgba(185, 28, 28, 0.35)',
+                    marginBottom: '0.35rem',
+                  }}
+                >
+                  System Recommended
+                </span>
+              )}
               <XCircle size={24} color={selectedDecision === 'REJECT' ? 'var(--color-danger)' : 'var(--text-muted)'} />
               <strong style={{ marginTop: '0.4rem', fontSize: '1rem' }}>REJECT</strong>
               <span style={{ fontSize: '0.72rem', opacity: 0.85, textAlign: 'center', marginTop: '0.2rem' }}>

@@ -26,6 +26,7 @@ from app.models.comparison import (
 )
 from app.models.content import KeyInformation, RegulatoryContentItem
 from app.models.document import CanonicalSectionConcept
+from app.models.document_change import ReviewDecisionType
 from app.services.key_information_extractor import (
     KeyInformationExtractor,
     normalize_dose_unit,
@@ -219,6 +220,149 @@ class MultiDimensionalComparator:
         )
 
         return match_result, unique_diffs, structured_evidence, false_match_warning
+
+    def evaluate_recommendation(
+        self,
+        match: MultiDimensionalMatch,
+        differences: List[DifferenceItem],
+        false_match_warning: Optional[str] = None,
+        similarity_score: Optional[float] = None,
+        target_info: Optional[KeyInformation] = None,
+        candidate_info: Optional[KeyInformation] = None,
+    ) -> Tuple[ReviewDecisionType, str, Optional[float]]:
+        """Evaluate deterministic regulatory recommendation (REUSE, ADAPT, REJECT)
+        grounded in six-dimensional comparison evidence and regulatory safety rules.
+
+        ADVISORY ONLY: Does not mutate source documents, record human decisions,
+        or bypass human regulatory authority.
+
+        Safety Priorities:
+        1. Critical Safety Violations -> REJECT:
+           - Active false-match warning (high lexical similarity masking clinical discrepancy).
+           - Key Information MISMATCH (different active substance or conflicting dosage).
+           - Context MISMATCH (clinical trial adverse events vs prescribing directives).
+           - Meaning MISMATCH (contradictory regulatory directives).
+           - Critical attribute difference (conflicting drug, active ingredient, or major dose discrepancy).
+        2. Clean Full Alignment -> REUSE:
+           - No false-match warning.
+           - Meaning is MATCH.
+           - Key Information is MATCH.
+           - Context is MATCH or NOT_APPLICABLE.
+           - Template, Format, and Structure have no major variations.
+           - Zero critical differences requiring reviewer attention.
+        3. Compatible Intent Requiring Changes -> ADAPT:
+           - Core regulatory meaning and context are compatible (MATCH or PARTIAL).
+           - Active substance does not conflict.
+           - Differences detected in template slots, formatting, outline structure, or phrasing nuances.
+
+        Returns:
+            Tuple of (recommended_decision, recommendation_reason, recommendation_confidence).
+        """
+        # =========================================================================
+        # 1. CRITICAL SAFETY REJECTIONS (REJECT)
+        # =========================================================================
+        # 1a. False-match warning
+        if false_match_warning:
+            clean_warning = false_match_warning.replace("FALSE MATCH WARNING: ", "").strip()
+            reason = f"REJECT recommended because a critical regulatory false-match discrepancy was detected ({clean_warning})."
+            confidence = 0.95
+            return ReviewDecisionType.REJECT, reason, confidence
+
+        # 1b. Critical attribute differences in difference items
+        critical_diffs = [
+            d for d in differences
+            if d.attribute in ("drug", "active_ingredient")
+            or (d.attribute in ("dose", "dose_unit", "route") and (d.regulatory_impact == "MAJOR" or d.reviewer_attention_required))
+        ]
+        if critical_diffs:
+            specs = "; ".join(d.explanation for d in critical_diffs[:2])
+            reason = f"REJECT recommended due to critical regulatory distinction ({specs})."
+            confidence = 0.92
+            return ReviewDecisionType.REJECT, reason, confidence
+
+        # 1c. Key Information mismatch
+        if match.key_information.status == DimensionStatus.MISMATCH:
+            reason = f"REJECT recommended due to critical Key Information mismatch: {match.key_information.details}"
+            confidence = 0.92
+            return ReviewDecisionType.REJECT, reason, confidence
+
+        # 1d. Incompatible regulatory context
+        if match.context.status == DimensionStatus.MISMATCH:
+            reason = f"REJECT recommended due to incompatible regulatory context: {match.context.details}"
+            confidence = 0.90
+            return ReviewDecisionType.REJECT, reason, confidence
+
+        # 1e. Contradictory regulatory meaning
+        if match.meaning.status == DimensionStatus.MISMATCH:
+            reason = f"REJECT recommended due to conflicting regulatory directive meaning: {match.meaning.details}"
+            confidence = 0.90
+            return ReviewDecisionType.REJECT, reason, confidence
+
+        # =========================================================================
+        # 2. VERBATIM DIRECT REUSE (REUSE)
+        # =========================================================================
+        is_meaning_match = match.meaning.status == DimensionStatus.MATCH
+        is_key_match = match.key_information.status == DimensionStatus.MATCH
+        is_context_match = match.context.status in (DimensionStatus.MATCH, DimensionStatus.NOT_APPLICABLE)
+        is_template_clean = match.template.status in (DimensionStatus.MATCH, DimensionStatus.NOT_APPLICABLE)
+        is_format_clean = match.format.status in (DimensionStatus.MATCH, DimensionStatus.NOT_APPLICABLE)
+        is_structure_clean = match.structure.status in (DimensionStatus.MATCH, DimensionStatus.NOT_APPLICABLE)
+
+        substantive_diffs = [
+            d for d in differences
+            if d.reviewer_attention_required or d.regulatory_impact == "MAJOR"
+        ]
+
+        if (
+            is_meaning_match
+            and is_key_match
+            and is_context_match
+            and is_template_clean
+            and is_format_clean
+            and is_structure_clean
+            and len(substantive_diffs) == 0
+        ):
+            reason = "REUSE recommended because Meaning, Context, and Key Information align and no critical differences were detected."
+            meaning_sc = match.meaning.score if match.meaning.score is not None else 0.95
+            key_sc = match.key_information.score if match.key_information.score is not None else 0.95
+            ctx_sc = match.context.score if match.context.score is not None else 0.95
+            sim_factor = similarity_score if similarity_score is not None else 0.90
+            raw_conf = (meaning_sc * 0.4) + (key_sc * 0.4) + (ctx_sc * 0.1) + (sim_factor * 0.1)
+            confidence = min(max(round(raw_conf, 2), 0.70), 0.98)
+            return ReviewDecisionType.REUSE, reason, confidence
+
+        # =========================================================================
+        # 3. CONTROLLED ADAPTATION (ADAPT)
+        # =========================================================================
+        adapt_reasons: List[str] = []
+
+        if match.template.status in (DimensionStatus.PARTIAL, DimensionStatus.MISMATCH):
+            adapt_reasons.append("template slot structure")
+
+        if match.format.status in (DimensionStatus.PARTIAL, DimensionStatus.MISMATCH):
+            adapt_reasons.append("formatting or quantitative presentation")
+
+        if match.structure.status in (DimensionStatus.PARTIAL, DimensionStatus.MISMATCH):
+            adapt_reasons.append("document outline structure")
+
+        if match.meaning.status == DimensionStatus.PARTIAL:
+            adapt_reasons.append("phrasing or regulatory modality nuances")
+
+        if match.key_information.status == DimensionStatus.PARTIAL or differences:
+            diff_attrs = sorted(list({d.attribute for d in differences if d.attribute not in ("drug", "active_ingredient")}))
+            if diff_attrs:
+                adapt_reasons.append(f"attribute adjustments ({', '.join(diff_attrs[:3])})")
+
+        if not adapt_reasons:
+            adapt_reasons.append("detected phrasing or structural variations")
+
+        reason = f"ADAPT recommended because core regulatory meaning aligns, but adaptations are required for: {'; '.join(adapt_reasons)}."
+
+        core_meaning_sc = match.meaning.score if match.meaning.score is not None else 0.80
+        core_ctx_sc = match.context.score if match.context.score is not None else 0.80
+        raw_conf = (core_meaning_sc * 0.5) + (core_ctx_sc * 0.3) + 0.10
+        confidence = min(max(round(raw_conf, 2), 0.60), 0.90)
+        return ReviewDecisionType.ADAPT, reason, confidence
 
     def _evaluate_key_information(
         self,

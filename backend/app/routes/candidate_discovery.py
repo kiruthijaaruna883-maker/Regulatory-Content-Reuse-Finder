@@ -228,6 +228,15 @@ async def search_candidates(payload: CandidateSearchRequest) -> RegulatorySearch
     Preserves full Phase 3 Step 4 traceability and applies cross-source deduplication.
     """
     clean_query = (payload.query or "").strip()
+    if not clean_query and payload.target_text and payload.target_text.strip():
+        from app.services.key_information_extractor import KeyInformationExtractor
+        _extractor = KeyInformationExtractor()
+        _extracted = _extractor.extract(payload.target_text)
+        clean_query = _extracted.drug or _extracted.active_ingredient or _extracted.indication or (payload.section or "").strip()
+        if not clean_query:
+            _words = [w for w in payload.target_text.split() if len(w) > 3 and w.isalpha()]
+            clean_query = " ".join(_words[:3]) if _words else payload.target_text[:40].strip()
+
     if not clean_query:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   GitCompare,
   ExternalLink,
@@ -12,7 +12,8 @@ import {
   ChevronDown,
   ChevronUp,
   FileText,
-  Sliders
+  Sliders,
+  Sparkles
 } from 'lucide-react';
 import { api } from '../services/api';
 
@@ -83,16 +84,20 @@ export default function CandidateComparison({
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState(null);
 
-  // Six-Dimensional Analysis State (Step 6.4)
+  // Six-Dimensional Analysis State (Step 6.4 & 6G.2)
   const [analysisResult, setAnalysisResult] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState(null);
+  const [selectedCandidateIndex, setSelectedCandidateIndex] = useState(0);
 
   // Grouped Differences State & UI Filter
   const [differences, setDifferences] = useState([]);
   const [selectedDimensionFilter, setSelectedDimensionFilter] = useState('all');
   const [expandedFacts, setExpandedFacts] = useState({});
   const [showTraceabilityDetails, setShowTraceabilityDetails] = useState(false);
+
+  // Auto-discovery key ref to prevent repeated duplicate auto-discovery calls
+  const autoDiscoveredKeyRef = useRef(null);
 
   // Adjust state when targetSection prop changes
   const [prevTargetSection, setPrevTargetSection] = useState(targetSection);
@@ -106,6 +111,7 @@ export default function CandidateComparison({
     }
     setAnalysisResult(null);
     setDifferences([]);
+    setSelectedCandidateIndex(0);
   }
 
   // Adjust state when candidateItem prop changes
@@ -120,7 +126,74 @@ export default function CandidateComparison({
     }
     setAnalysisResult(null);
     setDifferences([]);
+    setSelectedCandidateIndex(0);
   }
+
+  // Automatic Candidate Discovery & 6D Evaluation on Mount / Section Change (Phase 6G.2)
+  useEffect(() => {
+    const currentKey = targetSection?.content_id || targetSection?.section || (targetText ? targetText.slice(0, 60) : null);
+    if (!currentKey || autoDiscoveredKeyRef.current === currentKey) {
+      return;
+    }
+    autoDiscoveredKeyRef.current = currentKey;
+
+    async function triggerAutoDiscovery() {
+      const cleanTarget = (targetText || '').trim();
+      if (cleanTarget.length < 5) return;
+
+      setAnalyzing(true);
+      setAnalysisError(null);
+      try {
+        const options = {
+          retrieve_live: true,
+          source_filter: 'all',
+          top_k: 10,
+        };
+        if (targetSection?.content_id) options.target_content_id = targetSection.content_id;
+        if (targetSection?.document_name) options.document_name = targetSection.document_name;
+        if (targetSection?.document_id) options.document_id = targetSection.document_id;
+        if (targetSection?.subsection) options.subsection = targetSection.subsection;
+        if (targetSection?.location) options.location = targetSection.location;
+        if (targetSection?.page !== undefined && targetSection?.page !== null) options.page = targetSection.page;
+        if (targetSection?.content_type) options.content_type = targetSection.content_type;
+
+        // If candidateItem was provided as prop, compare against it; otherwise auto-retrieve
+        const candidatePayloads = candidateItem
+          ? [
+              {
+                ...candidateItem,
+                source: candidateItem.source || 'DailyMed',
+                text: candidateText || candidateItem.text || '',
+              },
+            ]
+          : [];
+
+        const result = await api.analyzeCandidates(
+          cleanTarget,
+          candidatePayloads,
+          targetSection?.section || null,
+          options
+        );
+
+        setAnalysisResult(result);
+        if (result?.candidates?.length > 0) {
+          const topComp = result.candidates[0];
+          const topUnderlying = topComp.candidate || topComp;
+          setSelectedCandidate(topUnderlying);
+          setCandidateText(topUnderlying.text || '');
+          setDifferences(topComp.differences || []);
+          setSelectedCandidateIndex(0);
+        }
+      } catch (err) {
+        // Non-blocking auto-discovery fallback
+        console.warn('Auto-discovery non-blocking notice:', err);
+      } finally {
+        setAnalyzing(false);
+      }
+    }
+
+    triggerAutoDiscovery();
+  }, [targetSection, targetText, candidateItem, candidateText]);
 
   // Trigger candidate discovery via api.searchCandidates (Step 6.3 preserved)
   async function handleDiscoverCandidates(e) {
@@ -159,6 +232,20 @@ export default function CandidateComparison({
     setDifferences([]);
     setAnalysisResult(null);
     setAnalysisError(null);
+    setSelectedCandidateIndex(0);
+  }
+
+  // Set active candidate from analyzed candidates list (Phase 6G.2)
+  function handleSelectAnalysisCandidate(idx) {
+    setSelectedCandidateIndex(idx);
+    const comp = analysisResult?.candidates?.[idx];
+    if (comp) {
+      const underlying = comp.candidate || comp;
+      setSelectedCandidate(underlying);
+      setCandidateText(underlying.text || '');
+      setDifferences(comp.differences || []);
+      setAnalysisError(null);
+    }
   }
 
   // Run Six-Dimensional Comparison via api.analyzeCandidates (Step 6.4)
@@ -203,6 +290,7 @@ export default function CandidateComparison({
       );
 
       setAnalysisResult(result);
+      setSelectedCandidateIndex(0);
       const candDiffs = result?.candidates?.[0]?.differences || [];
       setDifferences(candDiffs);
     } catch (err) {
@@ -279,8 +367,8 @@ export default function CandidateComparison({
     };
   }
 
-  // Derive primary candidate evaluation from analysis result
-  const primaryCandidate = analysisResult?.candidates?.[0] || null;
+  // Derive primary candidate evaluation from analysis result (supporting multiple discovered candidates)
+  const primaryCandidate = analysisResult?.candidates?.[selectedCandidateIndex] || analysisResult?.candidates?.[0] || null;
   const matchResult = primaryCandidate?.multi_dimensional_match || null;
   const falseMatchWarning =
     primaryCandidate?.false_match_warning ||
@@ -400,12 +488,189 @@ export default function CandidateComparison({
           </div>
         )}
 
-        {/* Discovered Candidate Results List */}
+        {/* Automatically Discovered Candidates (Phase 6G.2) */}
+        {analysisResult?.candidates?.length > 0 && (
+          <div style={{ marginTop: '1.25rem', borderTop: '1px solid var(--border-subtle)', paddingTop: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+              <span style={{ fontSize: '0.84rem', color: 'var(--text-primary)', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <Sparkles size={15} color="var(--color-brand)" /> Discovered Regulatory Candidates ({analysisResult.candidates.length}):
+              </span>
+              <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                System-discovered & evaluated across 6 dimensions with advisory recommendations
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {analysisResult.candidates.map((compCand, idx) => {
+                const item = compCand.candidate || compCand;
+                const isSelected = selectedCandidateIndex === idx;
+                const rec = compCand.recommended_decision;
+                const conf = compCand.recommendation_confidence;
+                const sim = compCand.similarity_score;
+                const reason = compCand.recommendation_reason;
+                const crossSources = item.metadata?.cross_sources;
+                const duplicateProvenance = item.metadata?.duplicate_provenance;
+                const hasFalseMatch = compCand.false_match_warning || item.false_match_warning;
+
+                return (
+                  <div
+                    key={item.content_id || idx}
+                    className="result-item"
+                    style={{
+                      borderColor: isSelected ? 'var(--color-brand)' : 'var(--border-subtle)',
+                      background: isSelected ? 'var(--bg-surface-elevated)' : 'var(--bg-main)',
+                      padding: '0.85rem',
+                    }}
+                  >
+                    <div className="result-title" style={{ alignItems: 'flex-start' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                          <span style={{ fontWeight: '600', color: 'var(--text-primary)', fontSize: '0.9rem' }}>
+                            {item.document_name || item.product || 'Regulatory Record'}
+                          </span>
+                          <span className="badge" style={getSourceStyle(item.source)}>
+                            {item.source}
+                          </span>
+                          {item.section && (
+                            <span className="badge badge-section">
+                              {item.section}
+                            </span>
+                          )}
+                          {item.subsection && (
+                            <span className="badge badge-section" style={{ opacity: 0.85 }}>
+                              {item.subsection}
+                            </span>
+                          )}
+                          {sim !== undefined && sim !== null && (
+                            <span className="badge badge-section" style={{ fontSize: '0.72rem' }}>
+                              Alignment: {Math.round(sim * 100)}%
+                            </span>
+                          )}
+                          {rec && (
+                            <span
+                              className="badge"
+                              style={{
+                                fontSize: '0.72rem',
+                                fontWeight: '700',
+                                padding: '0.2rem 0.5rem',
+                                background:
+                                  rec === 'REUSE'
+                                    ? 'rgba(21, 128, 61, 0.15)'
+                                    : rec === 'ADAPT'
+                                    ? 'rgba(180, 83, 9, 0.15)'
+                                    : 'rgba(185, 28, 28, 0.15)',
+                                color:
+                                  rec === 'REUSE'
+                                    ? 'var(--color-success)'
+                                    : rec === 'ADAPT'
+                                    ? 'var(--color-warning)'
+                                    : 'var(--color-danger)',
+                                border: `1px solid ${
+                                  rec === 'REUSE'
+                                    ? 'rgba(21, 128, 61, 0.3)'
+                                    : rec === 'ADAPT'
+                                    ? 'rgba(180, 83, 9, 0.3)'
+                                    : 'rgba(185, 28, 28, 0.3)'
+                                }`,
+                              }}
+                            >
+                              AI: {rec} {conf !== null && conf !== undefined ? `(${Math.round(conf * 100)}%)` : ''}
+                            </span>
+                          )}
+                          {isSelected && (
+                            <span
+                              className="badge"
+                              style={{
+                                background: 'rgba(21, 128, 61, 0.15)',
+                                color: 'var(--color-success)',
+                                border: '1px solid rgba(21, 128, 61, 0.3)',
+                              }}
+                            >
+                              <CheckCircle2 size={11} /> Active in Comparison
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Factual Recommendation Reason preview */}
+                        {reason && (
+                          <div style={{ marginTop: '0.35rem', fontSize: '0.78rem', color: 'var(--text-secondary)', fontStyle: 'italic', lineHeight: 1.4 }}>
+                            {reason}
+                          </div>
+                        )}
+
+                        {/* Metadata & Provenance Row */}
+                        <div style={{ display: 'flex', gap: '0.8rem', flexWrap: 'wrap', marginTop: '0.35rem', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                          {item.content_id && (
+                            <span>Content ID: <code style={{ color: 'var(--color-brand)' }}>{item.content_id}</code></span>
+                          )}
+                          {item.document_id && (
+                            <span>Doc ID: <code>{item.document_id}</code></span>
+                          )}
+                          {item.source_identifier && (
+                            <span>Source ID: <code>{item.source_identifier}</code></span>
+                          )}
+                          {item.page !== undefined && item.page !== null && (
+                            <span>Page: <strong>{item.page}</strong></span>
+                          )}
+                          {item.location && (
+                            <span>Location: <strong>{item.location}</strong></span>
+                          )}
+                        </div>
+
+                        {/* Cross-Source & False Match Badges */}
+                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.35rem' }}>
+                          {crossSources && crossSources.length > 1 && (
+                            <span className="badge" style={{ background: 'rgba(14, 165, 233, 0.12)', color: 'var(--color-brand)', border: '1px solid rgba(14, 165, 233, 0.25)', fontSize: '0.72rem' }}>
+                              <Layers size={10} /> Corroborated by: {crossSources.join(', ')}
+                            </span>
+                          )}
+                          {duplicateProvenance && duplicateProvenance.length > 0 && (
+                            <span className="badge" style={{ background: 'rgba(245, 158, 11, 0.12)', color: 'var(--color-warning)', border: '1px solid rgba(245, 158, 11, 0.25)', fontSize: '0.72rem' }}>
+                              {duplicateProvenance.length} duplicate source record(s) merged
+                            </span>
+                          )}
+                          {hasFalseMatch && (
+                            <span className="badge" style={{ background: 'rgba(185, 28, 28, 0.15)', color: 'var(--color-danger)', border: '1px solid rgba(185, 28, 28, 0.3)', fontSize: '0.72rem' }}>
+                              <ShieldAlert size={11} /> False Match Warning
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleSelectAnalysisCandidate(idx)}
+                        className={`btn ${isSelected ? 'btn-secondary' : 'btn-primary'}`}
+                        style={{ fontSize: '0.76rem', padding: '0.35rem 0.75rem', flexShrink: 0 }}
+                      >
+                        {isSelected ? 'Active' : 'Select for Comparison'}
+                      </button>
+                    </div>
+
+                    <div className="result-text" style={{ maxHeight: '70px', marginTop: '0.5rem', fontSize: '0.82rem' }}>
+                      {item.text}
+                    </div>
+
+                    {item.source_url && (
+                      <div style={{ marginTop: '0.35rem' }}>
+                        <a href={item.source_url} target="_blank" rel="noopener noreferrer" className="trace-link" style={{ fontSize: '0.74rem' }}>
+                          <ExternalLink size={11} /> Trace Official Source Record
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Manual Search Results List (if user ran a custom query) */}
         {searchResults.length > 0 && (
           <div style={{ marginTop: '1.25rem', borderTop: '1px solid var(--border-subtle)', paddingTop: '1rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
               <span style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', fontWeight: '500' }}>
-                Discovered Candidates ({searchResults.length}):
+                Manual Search Results ({searchResults.length}):
               </span>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                 Click "Select for Comparison" to populate the comparison workspace
@@ -432,7 +697,7 @@ export default function CandidateComparison({
                     <div className="result-title" style={{ alignItems: 'flex-start' }}>
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                          <span style={{ fontWeight: '600', color: '#fff', fontSize: '0.9rem' }}>
+                          <span style={{ fontWeight: '600', color: 'var(--text-primary)', fontSize: '0.9rem' }}>
                             {cand.document_name || cand.product || 'Regulatory Record'}
                           </span>
                           <span className="badge" style={getSourceStyle(cand.source)}>
@@ -452,9 +717,9 @@ export default function CandidateComparison({
                             <span
                               className="badge"
                               style={{
-                                background: 'rgba(16, 185, 129, 0.15)',
+                                background: 'rgba(21, 128, 61, 0.15)',
                                 color: 'var(--color-success)',
-                                border: '1px solid rgba(16, 185, 129, 0.3)',
+                                border: '1px solid rgba(21, 128, 61, 0.3)',
                               }}
                             >
                               <CheckCircle2 size={11} /> Active in Comparison
@@ -494,7 +759,7 @@ export default function CandidateComparison({
                             </span>
                           )}
                           {hasFalseMatch && (
-                            <span className="badge" style={{ background: 'rgba(239, 68, 68, 0.15)', color: 'var(--color-danger)', border: '1px solid rgba(239, 68, 68, 0.3)', fontSize: '0.72rem' }}>
+                            <span className="badge" style={{ background: 'rgba(185, 28, 28, 0.15)', color: 'var(--color-danger)', border: '1px solid rgba(185, 28, 28, 0.3)', fontSize: '0.72rem' }}>
                               <ShieldAlert size={11} /> Human Review Recommended
                             </span>
                           )}
@@ -529,9 +794,9 @@ export default function CandidateComparison({
         )}
 
         {/* Empty state when query executed but returned 0 items */}
-        {!searching && searchResults.length === 0 && searchQuery && (
+        {!searching && searchResults.length === 0 && (!analysisResult?.candidates || analysisResult.candidates.length === 0) && searchQuery && (
           <div style={{ marginTop: '1rem', padding: '0.85rem', background: 'var(--bg-main)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
-            No regulatory candidates were found for this search. Try a broader search term or change the source filter.
+            No regulatory candidates were discovered. Try a broader search term or select another section.
           </div>
         )}
       </div>
@@ -685,6 +950,90 @@ export default function CandidateComparison({
             </div>
           </div>
 
+          {/* Advisory Recommendation Banner (Phase 6G.2) */}
+          {primaryCandidate?.recommended_decision && (
+            <div
+              style={{
+                marginBottom: '1.25rem',
+                padding: '1rem 1.25rem',
+                background:
+                  primaryCandidate.recommended_decision === 'REUSE'
+                    ? 'rgba(21, 128, 61, 0.08)'
+                    : primaryCandidate.recommended_decision === 'ADAPT'
+                    ? 'rgba(180, 83, 9, 0.08)'
+                    : 'rgba(185, 28, 28, 0.08)',
+                border: `1.5px solid ${
+                  primaryCandidate.recommended_decision === 'REUSE'
+                    ? 'rgba(21, 128, 61, 0.35)'
+                    : primaryCandidate.recommended_decision === 'ADAPT'
+                    ? 'rgba(180, 83, 9, 0.35)'
+                    : 'rgba(185, 28, 28, 0.35)'
+                }`,
+                borderRadius: 'var(--radius-md)',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  <span
+                    className="badge"
+                    style={{
+                      fontSize: '0.8rem',
+                      fontWeight: '700',
+                      letterSpacing: '0.04em',
+                      padding: '0.3rem 0.65rem',
+                      background:
+                        primaryCandidate.recommended_decision === 'REUSE'
+                          ? 'rgba(21, 128, 61, 0.18)'
+                          : primaryCandidate.recommended_decision === 'ADAPT'
+                          ? 'rgba(180, 83, 9, 0.18)'
+                          : 'rgba(185, 28, 28, 0.18)',
+                      color:
+                        primaryCandidate.recommended_decision === 'REUSE'
+                          ? 'var(--color-success)'
+                          : primaryCandidate.recommended_decision === 'ADAPT'
+                          ? 'var(--color-warning)'
+                          : 'var(--color-danger)',
+                    }}
+                  >
+                    {primaryCandidate.recommended_decision}
+                  </span>
+                  <strong style={{ fontSize: '0.92rem', color: 'var(--text-primary)' }}>
+                    ADVISORY RECOMMENDATION — HUMAN GOVERNANCE REQUIRED
+                  </strong>
+                </div>
+
+                {primaryCandidate.recommendation_confidence !== null && primaryCandidate.recommendation_confidence !== undefined && (
+                  <span
+                    style={{
+                      fontSize: '0.76rem',
+                      color: 'var(--text-secondary)',
+                      fontWeight: '600',
+                      background: 'var(--bg-surface)',
+                      padding: '0.2rem 0.5rem',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid var(--border-subtle)',
+                    }}
+                  >
+                    Advisory Confidence: {Math.round(primaryCandidate.recommendation_confidence * 100)}%
+                  </span>
+                )}
+              </div>
+
+              {primaryCandidate.recommendation_reason && (
+                <p style={{ color: 'var(--text-primary)', fontSize: '0.86rem', margin: '0.4rem 0 0.5rem 0', lineHeight: 1.5 }}>
+                  {primaryCandidate.recommendation_reason}
+                </p>
+              )}
+
+              <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                <ShieldAlert size={12} />
+                <span>
+                  Advisory comparison output only. The human regulatory reviewer retains exclusive legal authority and must explicitly record and authorize any decision.
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* False Match Warning Banner */}
           {falseMatchWarning && (
             <div
@@ -724,7 +1073,7 @@ export default function CandidateComparison({
             <span style={{ fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>
               Overall Multi-Dimensional Alignment Summary
             </span>
-            <p style={{ fontSize: '0.86rem', color: '#fff', margin: 0, lineHeight: 1.5 }}>
+            <p style={{ fontSize: '0.86rem', color: 'var(--text-primary)', margin: 0, lineHeight: 1.5 }}>
               {matchResult?.overall_alignment_summary || analysisResult.summary_explanation || 'Evaluation complete across all six regulatory dimensions.'}
             </p>
           </div>
@@ -1083,6 +1432,52 @@ export default function CandidateComparison({
             ))}
           </div>
         )}
+
+        {/* Phase 6G.2 Transition to Human Governance Action Bar */}
+        <div
+          style={{
+            marginTop: '1.5rem',
+            padding: '1.1rem 1.25rem',
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-md)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '1rem',
+            boxShadow: 'var(--shadow-card)',
+          }}
+        >
+          <div>
+            <strong style={{ fontSize: '0.92rem', color: 'var(--text-primary)', display: 'block', marginBottom: '0.2rem' }}>
+              Human Governance Gate Ready
+            </strong>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.45 }}>
+              Transfer comparison evidence and advisory signals to the Decision Panel for formal regulatory authorization.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              if (onProceedToDecision) {
+                onProceedToDecision({
+                  targetText,
+                  candidateText,
+                  differences,
+                  candidateItem: selectedCandidate,
+                  analysisResult,
+                  targetSection,
+                });
+              }
+            }}
+            className="btn btn-primary"
+            style={{ fontSize: '0.86rem', padding: '0.6rem 1.25rem' }}
+            disabled={!selectedCandidate}
+          >
+            Proceed to Decision Panel <ArrowRight size={14} />
+          </button>
+        </div>
       </div>
     </div>
   );

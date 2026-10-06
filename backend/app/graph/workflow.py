@@ -123,6 +123,14 @@ def build_agent1_graph():
                 target_key_info=key_info,
                 target_section=sec,
             )
+            rec_decision, rec_reason, rec_conf = comparator.evaluate_recommendation(
+                match=match_res,
+                differences=diffs,
+                false_match_warning=false_warning,
+                similarity_score=0.85,
+                target_info=key_info,
+                candidate_info=cand.key_information,
+            )
             candidate_obj = ComparisonCandidate(
                 candidate_id=f"cand_{cand.content_id}",
                 content_item=cand,
@@ -133,6 +141,9 @@ def build_agent1_graph():
                 evidence=[evidence],
                 false_match_warning=false_warning,
                 requires_human_review=True,  # AI never makes final decisions
+                recommended_decision=rec_decision,
+                recommendation_reason=rec_reason,
+                recommendation_confidence=rec_conf,
             )
             ranked.append(candidate_obj)
 

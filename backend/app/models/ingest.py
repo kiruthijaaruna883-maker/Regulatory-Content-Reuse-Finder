@@ -23,7 +23,7 @@ class DocumentIngestResponse(BaseModel):
 class CandidateSearchRequest(BaseModel):
     """Request model for candidate discovery across ingested and live sources."""
 
-    query: str = Field(..., min_length=1, description="Search query string, drug name, or clinical phrase")
+    query: str = Field(default="", description="Search query string, drug name, or clinical phrase")
     source_filter: str = Field(
         default="all",
         description="Allowed source filter: 'all', 'ingested', 'internal', 'dailymed', 'openfda'",

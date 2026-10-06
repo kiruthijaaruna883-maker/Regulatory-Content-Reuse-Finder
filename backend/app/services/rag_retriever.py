@@ -65,6 +65,8 @@ class LiveRAGRetriever:
 
         # 1. Determine search query from extracted key information or text snippet
         query = key_info.drug or key_info.active_ingredient or key_info.indication
+        if not query and section_hint and section_hint.strip():
+            query = section_hint.strip()
         if not query:
             # Extract first 3-5 alphanumeric words as fallback query
             words = [w for w in target_text.split() if len(w) > 3 and w.isalpha()]

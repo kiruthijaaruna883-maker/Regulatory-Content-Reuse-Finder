@@ -218,6 +218,9 @@ class EvidenceTrace(BaseModel):
     exact_quote: Optional[str] = None
 
 
+from app.models.document_change import ReviewDecisionType
+
+
 class ComparisonCandidate(BaseModel):
     """Candidate regulatory content item evaluated against target content."""
 
@@ -259,6 +262,20 @@ class ComparisonCandidate(BaseModel):
     requires_human_review: bool = Field(
         default=True,
         description="Enforces human regulatory professional final decision requirement",
+    )
+    recommended_decision: Optional[ReviewDecisionType] = Field(
+        default=None,
+        description="System advisory recommendation: REUSE, ADAPT, or REJECT",
+    )
+    recommendation_reason: Optional[str] = Field(
+        default=None,
+        description="Factual clinical rationale grounding the system recommendation",
+    )
+    recommendation_confidence: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Advisory confidence score between 0.0 and 1.0 grounded in comparison evidence",
     )
 
 
