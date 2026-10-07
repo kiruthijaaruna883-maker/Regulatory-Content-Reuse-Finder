@@ -88,8 +88,13 @@ class ChangeReportService:
                             if item and item.document_id:
                                 doc_id = item.document_id
                                 break
-                            if cstore.has_source_document(dec.target_content_id) or cstore.get_document(dec.target_content_id):
-                                doc_id = dec.target_content_id
+                            raw_id = dec.target_content_id
+                            base_id = raw_id.rsplit("_item", 1)[0] if raw_id.endswith("_item") else raw_id
+                            if cstore.has_source_document(base_id) or cstore.get_document(base_id):
+                                doc_id = base_id
+                                break
+                            elif cstore.has_source_document(raw_id) or cstore.get_document(raw_id):
+                                doc_id = raw_id
                                 break
             except Exception:
                 pass

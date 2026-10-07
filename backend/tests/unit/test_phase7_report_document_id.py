@@ -406,3 +406,242 @@ def test_report_document_id_recorded_in_audit_event():
     evt = report_events[0]
     assert evt.details["document_id"] == "doc_audit_test_789"
     assert evt.new_state["document_id"] == "doc_audit_test_789"
+
+
+# ==============================================================================
+# PHASE 7 BUG FIX: SYNTHETIC _item SUFFIX DEFENSIVE RESOLUTION TESTS
+# ==============================================================================
+
+
+def test_item_suffix_direct_fallback_resolution():
+    """Test A: Verify that doc_test_123_item resolves to doc_test_123 when source document exists."""
+    store = get_candidate_store()
+    raw_content = b"ORIGINAL SOURCE CONTENT FOR TEST A"
+    store.store_source_document(
+        document_id="doc_test_123",
+        source_bytes=raw_content,
+        filename="test_a_doc.txt",
+        file_format="txt",
+    )
+
+    dec = ReviewerDecision(
+        target_content_id="doc_test_123_item",
+        document_id=None,
+        decision=ReviewDecisionType.REUSE,
+        reviewer_name="Dr. Alex Vance",
+        reviewer_notes="Test A note",
+    )
+    res = client.post(
+        "/review/decision",
+        json=dec.model_dump(),
+    )
+    assert res.status_code == 200
+    saved_dec = res.json()
+    assert saved_dec["document_id"] == "doc_test_123"
+
+
+def test_decision_workflow_item_suffix_resolution():
+    """Test B: Simulate browser-style request where target_content_id has _item suffix and no document_id."""
+    store = get_candidate_store()
+    store.store_source_document(
+        document_id="doc_browser_sim_456",
+        source_bytes=b"Browser simulation source text",
+        filename="browser_doc.txt",
+        file_format="txt",
+    )
+
+    res = client.post(
+        "/review/decision",
+        json={
+            "target_content_id": "doc_browser_sim_456_item",
+            "candidate_id": "cand_ref_01",
+            "decision": "ADAPT",
+            "reviewer_name": "Reviewer B",
+            "reviewer_notes": "Clinical adaptation rationale",
+            "adaptation_instructions": "Adapted instruction text",
+        },
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["document_id"] == "doc_browser_sim_456"
+
+
+def test_proposal_workflow_item_suffix_resolution():
+    """Test C: Verify that proposal receives the authoritative source document_id from decision."""
+    store = get_candidate_store()
+    store.store_source_document(
+        document_id="doc_browser_sim_789",
+        source_bytes=b"Proposal test source content",
+        filename="proposal_doc.txt",
+        file_format="txt",
+    )
+
+    # 1. Record decision with _item target_content_id
+    res_dec = client.post(
+        "/review/decision",
+        json={
+            "target_content_id": "doc_browser_sim_789_item",
+            "decision": "REUSE",
+            "reviewer_name": "Reviewer C",
+            "reviewer_notes": "Reuse rationale",
+        },
+    )
+    assert res_dec.status_code == 200
+    dec_id = res_dec.json()["decision_id"]
+
+    # 2. Formulate proposal without explicit document_id
+    res_prop = client.post(
+        "/changes/analyze",
+        json={
+            "decision_id": dec_id,
+            "section": "Warnings",
+            "original_text": "Proposal test source content",
+            "document_name": "Test Document 789",
+        },
+    )
+    assert res_prop.status_code == 200
+    prop_data = res_prop.json()
+    assert prop_data["document_id"] == "doc_browser_sim_789"
+
+
+def test_approval_report_workflow_item_suffix_resolution():
+    """Test D: Verify that resulting ApprovedChangeReport.document_id is populated correctly."""
+    store = get_candidate_store()
+    store.store_source_document(
+        document_id="doc_browser_full_flow",
+        source_bytes=b"Complete flow source content",
+        filename="complete_flow.txt",
+        file_format="txt",
+    )
+
+    # 1. Decision with _item target
+    res_dec = client.post(
+        "/review/decision",
+        json={
+            "target_content_id": "doc_browser_full_flow_item",
+            "decision": "REUSE",
+            "reviewer_name": "Reviewer D",
+            "reviewer_notes": "Workflow note",
+        },
+    )
+    assert res_dec.status_code == 200
+    dec_id = res_dec.json()["decision_id"]
+
+    # 2. Proposal without explicit document_id
+    res_prop = client.post(
+        "/changes/analyze",
+        json={
+            "decision_id": dec_id,
+            "section": "Clinical Pharmacology",
+            "original_text": "Complete flow source content",
+            "document_name": "Flow Monograph",
+        },
+    )
+    assert res_prop.status_code == 200
+    prop_id = res_prop.json()["change_id"]
+
+    # 3. Approve report without explicit document_id
+    res_rep = client.post(
+        "/changes/approve",
+        json={
+            "approver_name": "Director of Regulatory Affairs",
+            "approval_confirmation": True,
+            "proposal_ids": [prop_id],
+            "document_name": "Flow Monograph",
+        },
+    )
+    assert res_rep.status_code == 200
+    rep_data = res_rep.json()
+    assert rep_data["document_id"] == "doc_browser_full_flow"
+
+
+def test_explicit_document_id_precedence_over_item_fallback():
+    """Test E: Verify that explicit document_id remains authoritative and is not overwritten by _item fallback."""
+    store = get_candidate_store()
+    store.store_source_document(
+        document_id="doc_fallback_source",
+        source_bytes=b"Fallback source",
+        filename="fallback.txt",
+        file_format="txt",
+    )
+    store.store_source_document(
+        document_id="doc_explicit_priority",
+        source_bytes=b"Explicit priority source",
+        filename="priority.txt",
+        file_format="txt",
+    )
+
+    # Supply explicit document_id while target_content_id has _item
+    res = client.post(
+        "/review/decision",
+        json={
+            "target_content_id": "doc_fallback_source_item",
+            "document_id": "doc_explicit_priority",
+            "decision": "REUSE",
+            "reviewer_name": "Priority Tester",
+            "reviewer_notes": "Testing precedence",
+        },
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["document_id"] == "doc_explicit_priority"
+
+
+def test_pdf_workflow_corrected_document_guard():
+    """Test F: For a PDF workflow whose report resolves document_id, verify PDF input-only guard is reached."""
+    from tests.unit.test_phase2_pdf_docx import make_test_pdf_bytes
+
+    store = get_candidate_store()
+    pdf_bytes = make_test_pdf_bytes(["1. INDICATIONS\nDrug is indicated for hypertension."])
+    store.store_source_document(
+        document_id="doc_pdf_safety_guard",
+        source_bytes=pdf_bytes,
+        filename="SYN-ACET-001_Synthetic_Regulatory_Test.pdf",
+        file_format="pdf",
+    )
+
+    # 1. Decision via _item target
+    res_dec = client.post(
+        "/review/decision",
+        json={
+            "target_content_id": "doc_pdf_safety_guard_item",
+            "decision": "ADAPT",
+            "reviewer_name": "Safety Reviewer",
+            "reviewer_notes": "Adaptation note",
+            "adaptation_instructions": "New adapted text",
+        },
+    )
+    assert res_dec.status_code == 200
+    dec_id = res_dec.json()["decision_id"]
+
+    # 2. Proposal
+    res_prop = client.post(
+        "/changes/analyze",
+        json={
+            "decision_id": dec_id,
+            "section": "Indications",
+            "original_text": "Drug is indicated for hypertension.",
+            "document_name": "SYN ACET 001 Synthetic Regulatory Test",
+        },
+    )
+    assert res_prop.status_code == 200
+    prop_id = res_prop.json()["change_id"]
+
+    # 3. Approve report
+    res_rep = client.post(
+        "/changes/approve",
+        json={
+            "approver_name": "Safety Officer",
+            "approval_confirmation": True,
+            "proposal_ids": [prop_id],
+            "document_name": "SYN ACET 001 Synthetic Regulatory Test",
+        },
+    )
+    assert res_rep.status_code == 200
+    rep_id = res_rep.json()["report_id"]
+    assert res_rep.json()["document_id"] == "doc_pdf_safety_guard"
+
+    # 4. Attempt to download corrected document for PDF
+    res_corr = client.post(f"/changes/report/{rep_id}/corrected-document")
+    assert res_corr.status_code == 400
+    assert "PDF format is input-only; in-place PDF document correction is not supported." in res_corr.json()["detail"]

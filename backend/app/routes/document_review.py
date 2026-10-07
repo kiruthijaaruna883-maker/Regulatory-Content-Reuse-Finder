@@ -148,8 +148,13 @@ async def record_review_decision(decision: ReviewerDecision) -> ReviewerDecision
                 item = store.get_content_item(decision.target_content_id)
                 if item and item.document_id:
                     decision.document_id = item.document_id
-                elif store.has_source_document(decision.target_content_id) or store.get_document(decision.target_content_id):
-                    decision.document_id = decision.target_content_id
+                else:
+                    raw_id = decision.target_content_id
+                    base_id = raw_id.rsplit("_item", 1)[0] if raw_id.endswith("_item") else raw_id
+                    if store.has_source_document(base_id) or store.get_document(base_id):
+                        decision.document_id = base_id
+                    elif store.has_source_document(raw_id) or store.get_document(raw_id):
+                        decision.document_id = raw_id
         return change_manager.record_decision(decision)
     except Exception as exc:
         raise HTTPException(
@@ -215,8 +220,13 @@ async def analyze_change_proposal(payload: ChangeAnalyzeRequest) -> ProposedChan
                 item = store.get_content_item(decision.target_content_id)
                 if item and item.document_id:
                     resolved_doc_id = item.document_id
-                elif store.has_source_document(decision.target_content_id) or store.get_document(decision.target_content_id):
-                    resolved_doc_id = decision.target_content_id
+                else:
+                    raw_id = decision.target_content_id
+                    base_id = raw_id.rsplit("_item", 1)[0] if raw_id.endswith("_item") else raw_id
+                    if store.has_source_document(base_id) or store.get_document(base_id):
+                        resolved_doc_id = base_id
+                    elif store.has_source_document(raw_id) or store.get_document(raw_id):
+                        resolved_doc_id = raw_id
 
     if resolved_doc_id:
         proposal.document_id = resolved_doc_id
@@ -344,6 +354,7 @@ async def approve_and_generate_report(payload: ApproveReportRequest) -> Approved
             approval_confirmation=payload.approval_confirmation,
             approved_changes=eligible_proposals,
             audit_notes=payload.audit_notes,
+            document_id=payload.document_id,
         )
 
         # Authoritative document_id assignment
@@ -372,8 +383,13 @@ async def approve_and_generate_report(payload: ApproveReportRequest) -> Approved
                                 if item and item.document_id:
                                     report.document_id = item.document_id
                                     break
-                                if store.has_source_document(dec.target_content_id) or store.get_document(dec.target_content_id):
-                                    report.document_id = dec.target_content_id
+                                raw_id = dec.target_content_id
+                                base_id = raw_id.rsplit("_item", 1)[0] if raw_id.endswith("_item") else raw_id
+                                if store.has_source_document(base_id) or store.get_document(base_id):
+                                    report.document_id = base_id
+                                    break
+                                elif store.has_source_document(raw_id) or store.get_document(raw_id):
+                                    report.document_id = raw_id
                                     break
 
         # Mark proposals as approved and record audit transitions

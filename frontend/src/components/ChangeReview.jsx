@@ -219,6 +219,10 @@ export default function ChangeReview({ activeDecision, comparisonContext, onRepo
     try {
       const payload = {
         decision_id: activeDecision.decision_id,
+        document_id:
+          targetSection?.document_id ||
+          activeDecision?.document_id ||
+          null,
         section: sectionName,
         original_text: targetText,
         candidate_text: candidateText || null,
@@ -341,6 +345,10 @@ export default function ChangeReview({ activeDecision, comparisonContext, onRepo
         approver_name: fullApproverIdentity,
         approval_confirmation: true,
         proposal_ids: [prop.change_id],
+        document_id:
+          prop.document_id ||
+          targetSection?.document_id ||
+          null,
         document_name: prop.document_name || documentName || null,
         document_version: prop.document_version || targetSection?.document_version || null,
         audit_notes: `Authorized by ${fullApproverIdentity}. Occurrence review: ${occSummary}. Rationale: ${prop.rationale}`,

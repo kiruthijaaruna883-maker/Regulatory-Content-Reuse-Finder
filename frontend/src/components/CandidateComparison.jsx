@@ -493,6 +493,10 @@ export default function CandidateComparison({
       const decisionPayload = {
         target_content_id: targetContentId,
         candidate_id: candidateId,
+        document_id:
+          targetSection?.document_id ||
+          analysisResult?.target_document_id ||
+          null,
         decision: selectedDecision,
         reviewer_name: reviewerName.trim(),
         reviewer_notes: reviewerNotes.trim(),

@@ -480,6 +480,7 @@ class RegulatoryDocumentChangeAgent:
         document_name: Optional[str] = None,
         document_version: Optional[str] = None,
         audit_notes: Optional[str] = None,
+        document_id: Optional[str] = None,
     ) -> ApprovedChangeReport:
         """Assemble an auditable Approved Change Report strictly after explicit human authorization.
 
@@ -505,4 +506,5 @@ class RegulatoryDocumentChangeAgent:
             changes=approved_changes,
             audit_notes=audit_notes,
             approval_confirmation=approval_confirmation,
+            document_id=document_id,
         )
