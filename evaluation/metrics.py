@@ -71,3 +71,20 @@ def evaluate_false_match_detection(
             "FN"
         ),
     }
+
+
+def evaluate_pass_rate(passed_count: int, total_count: int) -> float:
+    """Calculate percentage pass rate (0.0 to 100.0) rounded to 1 decimal place."""
+    if total_count <= 0:
+        return 0.0
+    return round((passed_count / total_count) * 100.0, 1)
+
+
+def evaluate_hash_immutability(original_hash: str, current_hash: str) -> Dict[str, Any]:
+    """Verify cryptographic immutability between pre- and post-operation SHA-256 hashes."""
+    is_immutable = bool(original_hash and current_hash and original_hash == current_hash)
+    return {
+        "original_hash": original_hash,
+        "current_hash": current_hash,
+        "immutable": is_immutable,
+    }
