@@ -72,10 +72,17 @@ export default function CandidateComparison({
   );
 
   // Active Selected Candidate State (initialized from candidateItem prop)
-  const [selectedCandidate, setSelectedCandidate] = useState(candidateItem || null);
+  const initialCandidateUnderlying =
+    candidateItem?.content_item ||
+    candidateItem?.candidate ||
+    candidateItem ||
+    null;
+  const [selectedCandidate, setSelectedCandidate] = useState(initialCandidateUnderlying);
   const [candidateText, setCandidateText] = useState(
+    initialCandidateUnderlying?.text ||
+    candidateItem?.content_item?.text ||
     candidateItem?.text ||
-      'Adults: Take 1 to 2 tablets (500 mg) orally every 4 to 6 hours as needed. Maximum dosage: 8 tablets in 24 hours.'
+    'Adults: Take 1 to 2 tablets (500 mg) orally every 4 to 6 hours as needed. Maximum dosage: 8 tablets in 24 hours.'
   );
 
   // Human Candidate Decision State
@@ -134,9 +141,17 @@ export default function CandidateComparison({
   if (candidateItem !== prevCandidateItem) {
     setPrevCandidateItem(candidateItem);
     if (candidateItem) {
-      setSelectedCandidate(candidateItem);
-      if (candidateItem.text) {
-        setCandidateText(candidateItem.text);
+      const underlying =
+        candidateItem.content_item ||
+        candidateItem.candidate ||
+        candidateItem;
+      setSelectedCandidate(underlying);
+      const textToSet =
+        underlying.text ||
+        candidateItem.content_item?.text ||
+        candidateItem.text;
+      if (textToSet) {
+        setCandidateText(textToSet);
       }
     }
     setAnalysisResult(null);
@@ -192,9 +207,16 @@ export default function CandidateComparison({
         setAnalysisResult(result);
         if (result?.candidates?.length > 0) {
           const topComp = result.candidates[0];
-          const topUnderlying = topComp.candidate || topComp;
+          const topUnderlying =
+            topComp.content_item ||
+            topComp.candidate ||
+            topComp;
           setSelectedCandidate(topUnderlying);
-          setCandidateText(topUnderlying.text || '');
+          setCandidateText(
+            topUnderlying.text ||
+            topComp.content_item?.text ||
+            ''
+          );
           setDifferences(topComp.differences || []);
           setSelectedCandidateIndex(0);
         }
@@ -257,9 +279,16 @@ export default function CandidateComparison({
     setSelectedCandidateIndex(idx);
     const comp = analysisResult?.candidates?.[idx];
     if (comp) {
-      const underlying = comp.candidate || comp;
+      const underlying =
+        comp.content_item ||
+        comp.candidate ||
+        comp;
       setSelectedCandidate(underlying);
-      setCandidateText(underlying.text || '');
+      setCandidateText(
+        underlying.text ||
+        comp.content_item?.text ||
+        ''
+      );
       setDifferences(comp.differences || []);
       setAnalysisError(null);
       setSelectedDecision(null);
@@ -586,7 +615,10 @@ export default function CandidateComparison({
               Discovered Candidates ({analysisResult.candidates.length}):
             </span>
             {analysisResult.candidates.map((compCand, idx) => {
-              const item = compCand.candidate || compCand;
+              const item =
+                compCand.content_item ||
+                compCand.candidate ||
+                compCand;
               const isSelected = selectedCandidateIndex === idx;
               return (
                 <button
@@ -603,7 +635,7 @@ export default function CandidateComparison({
                     fontWeight: isSelected ? 700 : 500,
                   }}
                 >
-                  Candidate #{idx + 1}: {item.document_name || item.product || 'Record'} ({item.source})
+                  Candidate #{idx + 1}: {item.document_name || item.product || 'Record'} ({item.source || compCand.source})
                 </button>
               );
             })}
@@ -887,11 +919,11 @@ export default function CandidateComparison({
                 <Database size={16} color="var(--color-dailymed)" /> Candidate Content (Approved Reference)
               </span>
               <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                {selectedCandidate?.document_name || selectedCandidate?.product || 'Reference Label'} • {selectedCandidate?.section || 'Approved Section'}
+                {selectedCandidate?.document_name || selectedCandidate?.product || primaryCandidate?.content_item?.document_name || 'Reference Label'} • {selectedCandidate?.section || primaryCandidate?.content_item?.section || 'Approved Section'}
               </span>
             </div>
-            <span className="badge" style={getSourceStyle(selectedCandidate?.source)}>
-              {selectedCandidate?.source || 'Reference'}
+            <span className="badge" style={getSourceStyle(selectedCandidate?.source || primaryCandidate?.content_item?.source)}>
+              {selectedCandidate?.source || primaryCandidate?.content_item?.source || 'Reference'}
             </span>
           </div>
 

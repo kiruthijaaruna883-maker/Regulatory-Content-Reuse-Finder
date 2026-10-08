@@ -200,15 +200,39 @@ async def analyze_change_proposal(payload: ChangeAnalyzeRequest) -> ProposedChan
             ),
         )
 
-    proposal = change_agent.formulate_change_proposal(
-        decision=decision,
-        section=payload.section,
-        original_text=payload.original_text,
-        candidate_text=payload.candidate_text,
-        document_name=payload.document_name,
-        document_version=payload.document_version,
-        document_sections=payload.document_sections,
-    )
+    # Defense-in-depth: If payload.candidate_text is missing/empty and decision.candidate_id exists,
+    # resolve the candidate's actual regulatory content using existing candidate store APIs
+    candidate_text_to_use = (payload.candidate_text or "").strip()
+    if not candidate_text_to_use and getattr(decision, "candidate_id", None):
+        store = get_candidate_store()
+        ids_to_try = [decision.candidate_id]
+        if decision.candidate_id.startswith("cand_"):
+            ids_to_try.append(decision.candidate_id[5:])
+        for cid in ids_to_try:
+            item = store.get_content_item(cid)
+            if item and item.text and item.text.strip():
+                candidate_text_to_use = item.text.strip()
+                break
+            chunk = store.get_chunk(cid)
+            if chunk and chunk.text and chunk.text.strip():
+                candidate_text_to_use = chunk.text.strip()
+                break
+
+    try:
+        proposal = change_agent.formulate_change_proposal(
+            decision=decision,
+            section=payload.section,
+            original_text=payload.original_text,
+            candidate_text=candidate_text_to_use if candidate_text_to_use else None,
+            document_name=payload.document_name,
+            document_version=payload.document_version,
+            document_sections=payload.document_sections,
+        )
+    except ValueError as val_err:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(val_err),
+        )
 
     if not proposal:
         raise HTTPException(

@@ -127,7 +127,11 @@ export default function ChangeReview({ activeDecision, comparisonContext, onRepo
   const targetSection = comparisonContext?.targetSection || null;
   const candidateItem = comparisonContext?.candidateItem || null;
   const targetText = comparisonContext?.targetText || targetSection?.text || null;
-  const candidateText = comparisonContext?.candidateText || candidateItem?.text || null;
+  const candidateText =
+    comparisonContext?.candidateText ||
+    candidateItem?.content_item?.text ||
+    candidateItem?.text ||
+    null;
   const analysisResult = comparisonContext?.analysisResult || null;
 
   const sectionName =
@@ -148,6 +152,7 @@ export default function ChangeReview({ activeDecision, comparisonContext, onRepo
 
   const candidateId =
     candidateItem?.content_id ||
+    candidateItem?.content_item?.content_id ||
     analysisResult?.candidates?.[0]?.content_item?.content_id ||
     analysisResult?.candidates?.[0]?.candidate_id ||
     activeDecision?.candidate_id ||

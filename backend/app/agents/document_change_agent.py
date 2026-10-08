@@ -81,18 +81,35 @@ class RegulatoryDocumentChangeAgent:
         clean_candidate = (candidate_text or "").strip()
 
         if decision.decision == ReviewDecisionType.REUSE:
-            proposed_text = clean_candidate if clean_candidate else clean_original
+            if clean_candidate:
+                proposed_text = clean_candidate
+            elif getattr(decision, "candidate_id", None):
+                raise ValueError("Candidate reference text is required for a REUSE decision.")
+            else:
+                # Controlled fallback for legacy/internal change paths without an external candidate reference
+                proposed_text = clean_original
             rationale = (
                 f"Direct reuse of validated regulatory reference as approved by reviewer {decision.reviewer_name}. "
                 f"Reviewer notes: {decision.reviewer_notes or 'Standard adoption of reference standard.'}"
             )
         elif decision.decision == ReviewDecisionType.ADAPT:
-            proposed_text = self._synthesize_adaptation(
-                original_text=clean_original,
-                candidate_text=clean_candidate,
-                instructions=decision.adaptation_instructions or "",
-                section=section,
-            )
+            if clean_candidate:
+                proposed_text = self._synthesize_adaptation(
+                    original_text=clean_original,
+                    candidate_text=clean_candidate,
+                    instructions=decision.adaptation_instructions or "",
+                    section=section,
+                )
+            elif getattr(decision, "candidate_id", None):
+                raise ValueError("Candidate reference text is required as the adaptation base for an ADAPT decision.")
+            else:
+                # Direct adaptation without an external candidate reference
+                proposed_text = self._synthesize_adaptation(
+                    original_text=clean_original,
+                    candidate_text=clean_original,
+                    instructions=decision.adaptation_instructions or "",
+                    section=section,
+                )
             rationale = (
                 f"Adapted content based on human regulatory instructions: "
                 f"{decision.adaptation_instructions or 'Reviewer specified adaptations'}. "
@@ -145,8 +162,11 @@ class RegulatoryDocumentChangeAgent:
         Regulatory source text is treated strictly as passive untrusted data. Instructions
         contained within the source text are completely ignored.
         """
+        if not candidate_text or not candidate_text.strip():
+            raise ValueError("Candidate reference text is required to synthesize adaptation.")
+
         if not instructions.strip():
-            return candidate_text if candidate_text else original_text
+            return candidate_text.strip()
 
         if self.has_llm:
             try:
@@ -186,7 +206,7 @@ class RegulatoryDocumentChangeAgent:
                 logger.warning("OpenAI adaptation synthesis failed (%s). Falling back to deterministic adaptation.", exc)
 
         # Deterministic fallback (Clearly marks deterministic synthesis; never pretends to be AI)
-        base = candidate_text if candidate_text else original_text
+        base = candidate_text.strip()
         return f"{base} [Adapted per clinical instructions: {instructions}]"
 
     def detect_related_occurrences(
