@@ -215,6 +215,7 @@ async def ingest_regulatory_document(
     if not chunks:
         return DocumentIngestResponse(
             document_id=doc.document_id,
+            document_fingerprint=doc.document_fingerprint,
             document_name=doc.title,
             document_type=doc.document_type,
             jurisdiction=doc.jurisdiction,
@@ -227,6 +228,7 @@ async def ingest_regulatory_document(
 
     return DocumentIngestResponse(
         document_id=doc.document_id,
+        document_fingerprint=doc.document_fingerprint,
         document_name=doc.title,
         document_type=doc.document_type,
         jurisdiction=doc.jurisdiction,
@@ -291,6 +293,7 @@ async def search_candidates(payload: CandidateSearchRequest) -> RegulatorySearch
             top_k=payload.top_k,
             source_filter=norm_filter,
             exclude_document_id=effective_exclude_doc_id,
+            exclude_document_fingerprint=payload.exclude_document_fingerprint,
         )
         items = [r[0] for r in results]
     except Exception as exc:

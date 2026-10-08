@@ -475,3 +475,388 @@ def test_api_candidates_search_excludes_source_document():
     results_doc_ids = [it["document_id"] for it in search_data.get("items", [])]
     assert doc_a_id not in results_doc_ids
     assert doc_b_id in results_doc_ids
+
+
+def test_reingestion_idempotence_and_exclusion():
+    """Test A: Re-ingesting document with same document_id cleanly replaces chunks and exclusion works."""
+    store = IngestedDocumentCandidateStore()
+
+    doc_v1 = _create_sample_doc(
+        doc_id="doc_reingest_01",
+        title="Sample Regulatory Product",
+        drug_name="Acetaminophen",
+        text="Adults: Take 500 mg orally every 4 to 6 hours.",
+        sec_id="sec_v1",
+        chunk_id="chk_v1_01",
+    )
+    store.add_document(doc_v1)
+    assert store.count_documents() == 1
+    assert store.count_chunks() == 1
+    assert "chk_v1_01" in store._chunks
+
+    # Re-ingest same document_id with updated/new chunks
+    doc_v2 = _create_sample_doc(
+        doc_id="doc_reingest_01",
+        title="Sample Regulatory Product",
+        drug_name="Acetaminophen",
+        text="Adults: Take 500 mg orally every 4 to 6 hours with a full glass of water.",
+        sec_id="sec_v2",
+        chunk_id="chk_v2_01",
+    )
+    store.add_document(doc_v2)
+    assert store.count_documents() == 1
+    assert store.count_chunks() == 1
+    assert "chk_v1_01" not in store._chunks
+    assert "chk_v1_01" not in store._content_items
+    assert "chk_v2_01" in store._chunks
+    assert "chk_v2_01" in store._content_items
+
+    # Searching with exclude_document_id="doc_reingest_01" returns NO chunks from that document
+    res = store.search(query="Acetaminophen", exclude_document_id="doc_reingest_01")
+    assert len(res) == 0
+
+
+def test_same_document_name_not_used_for_exclusion():
+    """Test B: Two documents with identical names but different document_id are distinguished by identity."""
+    store = IngestedDocumentCandidateStore()
+
+    doc_a = _create_sample_doc(
+        doc_id="doc_A_100",
+        title="Synthetic Regulatory Test",
+        drug_name="Acetaminophen",
+        text="Dosage: 500 mg orally every 6 hours.",
+        sec_id="sec_A",
+        chunk_id="chk_A_1",
+    )
+    doc_b = _create_sample_doc(
+        doc_id="doc_B_200",
+        title="Synthetic Regulatory Test",  # EXACT SAME NAME
+        drug_name="Acetaminophen",
+        text="Dosage: 500 mg orally every 4 hours.",
+        sec_id="sec_B",
+        chunk_id="chk_B_1",
+    )
+    store.add_document(doc_a)
+    store.add_document(doc_b)
+    assert store.count_documents() == 2
+    assert store.count_chunks() == 2
+
+    # Excluding doc_A by document_id excludes ONLY doc_A; doc_B remains eligible despite identical title
+    res = store.search(query="Acetaminophen", exclude_document_id="doc_A_100")
+    returned_doc_ids = [it.document_id for it in res]
+    assert "doc_A_100" not in returned_doc_ids
+    assert "doc_B_200" in returned_doc_ids
+
+
+@pytest.mark.asyncio
+async def test_end_to_end_retriever_internal_draft_exclusion():
+    """Test D: Candidate retrieval with exclude_document_id=A never returns InternalDraft candidates from A."""
+    store = IngestedDocumentCandidateStore()
+    doc_a = _create_sample_doc(
+        doc_id="doc_internal_A",
+        title="SYN ACET 001 Synthetic Regulatory Test",
+        drug_name="Acetaminophen",
+        text="Adults: Take 1 tablet (500 mg) orally every 4 to 6 hours.",
+        sec_id="sec_A_1",
+        chunk_id="chk_A_1",
+    )
+    # doc_a has provenance source_repository="InternalDraft" and chunk.source="InternalDraft"
+    store.add_document(doc_a)
+
+    doc_ref = _create_sample_doc(
+        doc_id="doc_external_B",
+        title="Reference Label Acetaminophen",
+        drug_name="Acetaminophen",
+        text="Adults: Take 1 or 2 tablets (500 mg) every 4 to 6 hours as needed.",
+        sec_id="sec_B_1",
+        chunk_id="chk_B_1",
+    )
+    store.add_document(doc_ref)
+
+    retriever = LiveRAGRetriever(candidate_store=store)
+    results = await retriever.retrieve_candidates(
+        target_text="Adults: Take 1 tablet (500 mg) orally every 4 to 6 hours.",
+        section_hint="DOSAGE AND ADMINISTRATION",
+        source_filter="all",
+        exclude_document_id="doc_internal_A",
+    )
+
+    returned_doc_ids = [cand.document_id for cand, _, _ in results]
+
+    # Source document A must NEVER appear
+    assert "doc_internal_A" not in returned_doc_ids
+    # External reference candidate B is returned
+    assert "doc_external_B" in returned_doc_ids
+
+
+# ==============================================================================
+# F. DOCUMENT FINGERPRINT REGRESSION TESTS
+# ==============================================================================
+
+
+def test_repeated_upload_exact_same_document_excluded():
+    """Test A: Ingest the exact same document twice (new random doc_ids).
+
+    Analyze/search using doc_id_2; assert neither doc_id_1 nor doc_id_2 appears as a candidate.
+    """
+    sample_text = (
+        "1. INDICATIONS AND USAGE\n"
+        "Drug Acetaminophen is indicated for temporary relief of mild to moderate pain.\n\n"
+        "2. DOSAGE AND ADMINISTRATION\n"
+        "Adults: Take 1 or 2 tablets (500 mg each) every 4 to 6 hours as needed.\n"
+    )
+    # Also ingest a separate reference candidate to verify discovery works
+    ref_res = client.post(
+        "/documents/ingest",
+        json={
+            "pasted_text": (
+                "1. INDICATIONS AND USAGE\n"
+                "External Reference is indicated for fever and mild headache.\n\n"
+                "2. DOSAGE AND ADMINISTRATION\n"
+                "Adults: Take 500 mg once daily with a full glass of water.\n"
+            ),
+            "document_name": "External Reference Acetaminophen",
+        },
+    )
+    assert ref_res.status_code == 200
+    ref_doc_id = ref_res.json()["document_id"]
+
+    # Upload 1
+    res1 = client.post(
+        "/documents/ingest",
+        json={
+            "pasted_text": sample_text,
+            "document_name": "SYN ACET 001 Synthetic Regulatory Test",
+        },
+    )
+    assert res1.status_code == 200
+    data1 = res1.json()
+    doc_id_1 = data1["document_id"]
+    fp_1 = data1.get("document_fingerprint")
+    assert fp_1 is not None
+
+    # Upload 2 (exact same text, without passing document_id)
+    res2 = client.post(
+        "/documents/ingest",
+        json={
+            "pasted_text": sample_text,
+            "document_name": "SYN ACET 001 Synthetic Regulatory Test",
+        },
+    )
+    assert res2.status_code == 200
+    data2 = res2.json()
+    doc_id_2 = data2["document_id"]
+    fp_2 = data2.get("document_fingerprint")
+    assert fp_2 is not None
+
+    # Ensure document_id is distinct but document_fingerprint is identical
+    assert doc_id_1 != doc_id_2
+    assert fp_1 == fp_2
+
+    # Analyze section of doc_id_2
+    sec_2 = data2["sections"][1]  # Section 2
+    comp_res = client.post(
+        "/content/analyze",
+        json={
+            "target_text": sec_2["text"],
+            "section_name": sec_2.get("section"),
+            "candidates": [],
+            "retrieve_live": True,
+            "source_filter": "ingested",
+            "top_k": 10,
+            "document_id": doc_id_2,
+            "target_content_id": sec_2["content_id"],
+            "document_name": "SYN ACET 001 Synthetic Regulatory Test",
+        },
+    )
+    assert comp_res.status_code == 200
+    comp_data = comp_res.json()
+    candidate_doc_ids = [c["content_item"]["document_id"] for c in comp_data.get("candidates", [])]
+
+    # Neither doc_id_1 nor doc_id_2 must appear in candidates
+    assert doc_id_1 not in candidate_doc_ids
+    assert doc_id_2 not in candidate_doc_ids
+
+    # External reference remains discoverable
+    assert ref_doc_id in candidate_doc_ids
+
+
+def test_pasted_text_crlf_vs_lf_produces_identical_fingerprint():
+    """Test B: Ingest identical text once using CRLF and once using LF.
+
+    Assert fingerprints are identical and earlier ingestion is excluded from candidate results.
+    """
+    base_text = (
+        "1. INDICATIONS AND USAGE\n"
+        "Synthetic Drug Alpha is indicated for acute hypertension.\n\n"
+        "2. DOSAGE AND ADMINISTRATION\n"
+        "Adults: The recommended dose is 20 mg once daily.\n"
+    )
+    text_crlf = base_text.replace("\n", "\r\n")
+    text_lf = base_text.replace("\r\n", "\n")
+
+    res_crlf = client.post(
+        "/documents/ingest",
+        json={"pasted_text": text_crlf, "document_name": "Doc CRLF"},
+    )
+    assert res_crlf.status_code == 200
+    data_crlf = res_crlf.json()
+    doc_id_crlf = data_crlf["document_id"]
+    fp_crlf = data_crlf.get("document_fingerprint")
+
+    res_lf = client.post(
+        "/documents/ingest",
+        json={"pasted_text": text_lf, "document_name": "Doc LF"},
+    )
+    assert res_lf.status_code == 200
+    data_lf = res_lf.json()
+    doc_id_lf = data_lf["document_id"]
+    fp_lf = data_lf.get("document_fingerprint")
+
+    # Assert fingerprints are identical despite CRLF vs LF
+    assert fp_crlf == fp_lf
+    assert doc_id_crlf != doc_id_lf
+
+    # Candidate search excluding doc_id_lf must exclude doc_id_crlf as well
+    search_res = client.post(
+        "/candidates/search",
+        json={
+            "query": "Synthetic Drug Alpha",
+            "source_filter": "ingested",
+            "top_k": 5,
+            "exclude_document_id": doc_id_lf,
+        },
+    )
+    assert search_res.status_code == 200
+    items = search_res.json().get("items", [])
+    returned_doc_ids = [it["document_id"] for it in items]
+    assert doc_id_crlf not in returned_doc_ids
+    assert doc_id_lf not in returned_doc_ids
+
+
+def test_same_name_different_content_remains_discoverable():
+    """Test C: Same document name but different content produce different fingerprints.
+
+    Assert the different-content document remains a valid candidate.
+    """
+    store = IngestedDocumentCandidateStore()
+
+    doc_a = _create_sample_doc(
+        doc_id="doc_name_A",
+        title="Common Drug Label",
+        drug_name="Acetaminophen",
+        text="Dosage: Take 500 mg orally every 6 hours.",
+        sec_id="sec_A",
+        chunk_id="chk_A",
+    )
+    doc_b = _create_sample_doc(
+        doc_id="doc_name_B",
+        title="Common Drug Label",  # Exact same title
+        drug_name="Acetaminophen",
+        text="Dosage: Take 650 mg extended-release orally every 8 hours.",  # Different content
+        sec_id="sec_B",
+        chunk_id="chk_B",
+    )
+    store.add_document(doc_a)
+    store.add_document(doc_b)
+
+    fp_a = store.get_document_fingerprint("doc_name_A")
+    fp_b = store.get_document_fingerprint("doc_name_B")
+    assert fp_a is not None
+    assert fp_b is not None
+    assert fp_a != fp_b
+
+    # Searching with exclusion of Doc A excludes Doc A, but Doc B remains discoverable
+    results = store.search(query="Acetaminophen", exclude_document_id="doc_name_A")
+    doc_ids = [it.document_id for it in results]
+    assert "doc_name_A" not in doc_ids
+    assert "doc_name_B" in doc_ids
+
+
+def test_scanned_pdf_different_files_do_not_collide():
+    """Test D: Two different binary payloads representing scanned/image-only PDFs.
+
+    Assert fingerprints differ and neither falsely excludes the other.
+    """
+    from app.models.document import RegulatoryDocument, RegulatoryProvenance, RegulatorySection
+    from app.services.ingestion.unified_ingestion import generate_document_fingerprint
+
+    # Simulate two scanned PDFs with identical placeholder text but different binary content
+    placeholder_text = "[Scanned image-only PDF: digital text extraction unavailable]"
+
+    doc_scan1 = RegulatoryDocument(
+        document_id="doc_scan_1",
+        title="Scanned Dossier 1",
+        provenance=RegulatoryProvenance(source_repository="InternalDraft"),
+        raw_content=placeholder_text,
+        sections=[
+            RegulatorySection(
+                section_id="sec_s1",
+                heading_raw="Page 1 (Scanned)",
+                raw_text=placeholder_text,
+            )
+        ],
+    )
+    doc_scan2 = RegulatoryDocument(
+        document_id="doc_scan_2",
+        title="Scanned Dossier 2",
+        provenance=RegulatoryProvenance(source_repository="InternalDraft"),
+        raw_content=placeholder_text,
+        sections=[
+            RegulatorySection(
+                section_id="sec_s2",
+                heading_raw="Page 1 (Scanned)",
+                raw_text=placeholder_text,
+            )
+        ],
+    )
+
+    # Different raw binary bytes
+    binary_bytes_1 = b"%PDF-1.4 simulated binary stream scanned 1 AABBCCDDEE"
+    binary_bytes_2 = b"%PDF-1.4 simulated binary stream scanned 2 FFGGHHIIJJ"
+
+    fp_1 = generate_document_fingerprint(binary_bytes_1, doc_scan1)
+    fp_2 = generate_document_fingerprint(binary_bytes_2, doc_scan2)
+
+    # Different binaries must produce distinct fingerprints despite identical placeholder text
+    assert fp_1 != fp_2
+
+    # Verify store behavior with both
+    store = IngestedDocumentCandidateStore()
+    doc_scan1.document_fingerprint = fp_1
+    doc_scan2.document_fingerprint = fp_2
+    store.add_document(doc_scan1, source_bytes=binary_bytes_1)
+    store.add_document(doc_scan2, source_bytes=binary_bytes_2)
+
+    assert store.get_document_fingerprint("doc_scan_1") == fp_1
+    assert store.get_document_fingerprint("doc_scan_2") == fp_2
+
+    # Excluding doc_scan_1 does not exclude doc_scan_2
+    res = store.search(exclude_document_id="doc_scan_1")
+    res_doc_ids = [it.document_id for it in res]
+    assert "doc_scan_1" not in res_doc_ids
+    assert "doc_scan_2" in res_doc_ids
+
+
+def test_candidate_store_fingerprint_cleanup_on_remove():
+    """Test E: Add a document with fingerprint, remove it, and assert indexes are cleaned."""
+    store = IngestedDocumentCandidateStore()
+    doc = _create_sample_doc(
+        doc_id="doc_fp_clean",
+        title="Cleanup Test",
+        drug_name="Aspirin",
+        text="Dosage: 81 mg once daily.",
+    )
+    store.add_document(doc)
+    fp = store.get_document_fingerprint("doc_fp_clean")
+    assert fp is not None
+    assert "doc_fp_clean" in store._doc_to_fingerprint
+    assert fp in store._fingerprint_to_docs
+    assert "doc_fp_clean" in store._fingerprint_to_docs[fp]
+
+    # Remove document
+    removed = store.remove_document("doc_fp_clean")
+    assert removed is True
+    assert store.get_document_fingerprint("doc_fp_clean") is None
+    assert "doc_fp_clean" not in store._doc_to_fingerprint
+    assert fp not in store._fingerprint_to_docs

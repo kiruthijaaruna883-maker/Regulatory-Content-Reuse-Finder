@@ -59,6 +59,10 @@ class RegulatoryContentItem(BaseModel):
         default=None,
         description="Identifier of the containing document or package insert",
     )
+    document_fingerprint: Optional[str] = Field(
+        default=None,
+        description="Deterministic document content fingerprint of parent document",
+    )
     document_name: Optional[str] = Field(
         default=None,
         description="Title or label name of the regulatory document",

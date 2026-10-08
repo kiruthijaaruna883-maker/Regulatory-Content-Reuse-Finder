@@ -12,7 +12,7 @@ import io
 import logging
 import re
 import threading
-from typing import Any, BinaryIO, Dict, List, Optional, Sequence, TextIO, Tuple, Union
+from typing import Any, BinaryIO, Dict, List, Optional, Sequence, Set, TextIO, Tuple, Union
 
 from app.models.content import KeyInformation, RegulatoryContentItem
 from app.models.document import (
@@ -113,6 +113,8 @@ class IngestedDocumentCandidateStore:
         self._content_items: Dict[str, RegulatoryContentItem] = {}
         self._doc_to_chunks: Dict[str, List[str]] = {}
         self._source_documents: Dict[str, RetainedSourceDocument] = {}
+        self._doc_to_fingerprint: Dict[str, str] = {}
+        self._fingerprint_to_docs: Dict[str, Set[str]] = {}
         self._lock = threading.RLock()
         self._chunker = default_chunker or RegulatoryChunker()
 
@@ -123,6 +125,7 @@ class IngestedDocumentCandidateStore:
         filename: Optional[str] = None,
         file_format: Optional[str] = None,
         mime_type: Optional[str] = None,
+        document_fingerprint: Optional[str] = None,
     ) -> RetainedSourceDocument:
         """Store original uploaded document bytes immutably for a document_id."""
         with self._lock:
@@ -141,6 +144,7 @@ class IngestedDocumentCandidateStore:
 
             record = RetainedSourceDocument(
                 document_id=document_id,
+                document_fingerprint=document_fingerprint,
                 filename=eff_filename,
                 file_format=eff_format,
                 source_bytes=raw_b,
@@ -176,6 +180,32 @@ class IngestedDocumentCandidateStore:
             List of stored RegulatoryChunk objects.
         """
         with self._lock:
+            # 0. Idempotent replacement: if document_id already exists, remove existing registration first
+            if document.document_id in self._documents or document.document_id in self._doc_to_chunks:
+                self.remove_document(document.document_id)
+
+            # Ensure document fingerprint is resolved
+            doc_fp = document.document_fingerprint
+            if not doc_fp:
+                from app.services.ingestion.unified_ingestion import generate_document_fingerprint
+                doc_fp = generate_document_fingerprint(
+                    raw_data=source_bytes or document.raw_content or "",
+                    parsed_doc=document,
+                )
+                document.document_fingerprint = doc_fp
+
+            # Prune previous document(s) with identical fingerprint to prevent accumulating duplicate candidate chunks
+            if doc_fp and doc_fp in self._fingerprint_to_docs:
+                existing_doc_ids = list(self._fingerprint_to_docs[doc_fp])
+                for old_doc_id in existing_doc_ids:
+                    if old_doc_id != document.document_id:
+                        self.remove_document(old_doc_id)
+
+            # Register fingerprint indexing
+            if doc_fp:
+                self._doc_to_fingerprint[document.document_id] = doc_fp
+                self._fingerprint_to_docs.setdefault(doc_fp, set()).add(document.document_id)
+
             # 1. Resolve chunks
             effective_chunks: List[RegulatoryChunk] = []
             if chunks is not None and len(chunks) > 0:
@@ -193,6 +223,8 @@ class IngestedDocumentCandidateStore:
 
             # 3. Store chunks and adapt to RegulatoryContentItem for retrieval
             for chunk in effective_chunks:
+                if not chunk.document_fingerprint and doc_fp:
+                    chunk.document_fingerprint = doc_fp
                 self._chunks[chunk.chunk_id] = chunk
                 self._doc_to_chunks[document.document_id].append(chunk.chunk_id)
                 self._content_items[chunk.chunk_id] = chunk_to_content_item(chunk)
@@ -205,6 +237,7 @@ class IngestedDocumentCandidateStore:
                     filename=filename,
                     file_format=file_format,
                     mime_type=mime_type,
+                    document_fingerprint=doc_fp,
                 )
 
             logger.info(
@@ -311,15 +344,43 @@ class IngestedDocumentCandidateStore:
     def remove_document(self, document_id: str) -> bool:
         """Remove a document and its associated chunks from the candidate store."""
         with self._lock:
-            if document_id not in self._documents:
-                return False
-            del self._documents[document_id]
-            self._source_documents.pop(document_id, None)
+            removed = False
+            if document_id in self._documents:
+                del self._documents[document_id]
+                removed = True
+            if document_id in self._source_documents:
+                del self._source_documents[document_id]
+                removed = True
             chunk_ids = self._doc_to_chunks.pop(document_id, [])
+            if chunk_ids:
+                removed = True
             for cid in chunk_ids:
                 self._chunks.pop(cid, None)
                 self._content_items.pop(cid, None)
-            return True
+            # Ensure no orphaned chunks or content items with this document_id remain in store
+            orphaned_cids = [
+                cid for cid, item in self._content_items.items()
+                if item.document_id == document_id
+            ]
+            for cid in orphaned_cids:
+                self._content_items.pop(cid, None)
+                self._chunks.pop(cid, None)
+                removed = True
+
+            # Clean fingerprint indexes
+            fp = self._doc_to_fingerprint.pop(document_id, None)
+            if fp and fp in self._fingerprint_to_docs:
+                self._fingerprint_to_docs[fp].discard(document_id)
+                if not self._fingerprint_to_docs[fp]:
+                    del self._fingerprint_to_docs[fp]
+                removed = True
+
+            return removed
+
+    def get_document_fingerprint(self, document_id: str) -> Optional[str]:
+        """Retrieve the document content fingerprint for a given document_id."""
+        with self._lock:
+            return self._doc_to_fingerprint.get(document_id)
 
     def clear(self) -> None:
         """Clear all stored documents, chunks, and candidate items from the store."""
@@ -329,6 +390,8 @@ class IngestedDocumentCandidateStore:
             self._content_items.clear()
             self._doc_to_chunks.clear()
             self._source_documents.clear()
+            self._doc_to_fingerprint.clear()
+            self._fingerprint_to_docs.clear()
             logger.info("Ingested document candidate store cleared.")
 
     def count_documents(self) -> int:
@@ -349,6 +412,7 @@ class IngestedDocumentCandidateStore:
         target_text: Optional[str] = None,
         exclude_document_id: Optional[str] = None,
         exclude_content_id: Optional[str] = None,
+        exclude_document_fingerprint: Optional[str] = None,
     ) -> List[RegulatoryContentItem]:
         """Query stored candidates against query string, target text, and optional section filter.
 
@@ -362,6 +426,10 @@ class IngestedDocumentCandidateStore:
             if not self._content_items:
                 return []
 
+            target_fp = exclude_document_fingerprint
+            if not target_fp and exclude_document_id:
+                target_fp = self._doc_to_fingerprint.get(exclude_document_id)
+
             clean_query = (query or "").strip().lower()
             clean_section = (section or "").strip().lower()
             clean_target = (target_text or "").strip().lower()
@@ -373,6 +441,9 @@ class IngestedDocumentCandidateStore:
 
             for item in self._content_items.values():
                 if exclude_document_id and item.document_id == exclude_document_id:
+                    continue
+
+                if target_fp and getattr(item, "document_fingerprint", None) == target_fp:
                     continue
 
                 if exclude_content_id and item.content_id == exclude_content_id:

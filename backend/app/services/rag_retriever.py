@@ -53,6 +53,7 @@ class LiveRAGRetriever:
         source_filter: str = "all",
         exclude_document_id: Optional[str] = None,
         exclude_content_id: Optional[str] = None,
+        exclude_document_fingerprint: Optional[str] = None,
     ) -> List[Tuple[RegulatoryContentItem, float, str]]:
         """Execute on-demand RAG pipeline for the given target text.
 
@@ -104,18 +105,27 @@ class LiveRAGRetriever:
                     target_text=target_text,
                     exclude_document_id=exclude_document_id,
                     exclude_content_id=exclude_content_id,
+                    exclude_document_fingerprint=exclude_document_fingerprint,
                 )
                 raw_candidates.extend(ingested_candidates)
             except Exception as exc:
                 logger.warning("Ingested candidate store query failed: %s", exc)
 
         # Defensive exclusion filter to ensure source document chunks never reach vector similarity
+        target_fp = exclude_document_fingerprint
+        if not target_fp and exclude_document_id and hasattr(self.candidate_store, "get_document_fingerprint"):
+            target_fp = self.candidate_store.get_document_fingerprint(exclude_document_id)
+
         raw_candidates = [
             candidate
             for candidate in raw_candidates
             if not (
                 exclude_document_id
                 and candidate.document_id == exclude_document_id
+            )
+            and not (
+                target_fp
+                and getattr(candidate, "document_fingerprint", None) == target_fp
             )
             and not (
                 exclude_content_id

@@ -197,6 +197,10 @@ class RegulatoryChunk(BaseModel):
     )
 
     # Inherited Document Metadata (Lightweight for retrieval and filtering)
+    document_fingerprint: Optional[str] = Field(
+        default=None,
+        description="Deterministic document content fingerprint of parent document",
+    )
     document_name: Optional[str] = Field(default=None, description="Title of parent document")
     document_type: Optional[str] = Field(
         default=None,
@@ -259,6 +263,7 @@ class RegulatoryChunk(BaseModel):
         # Preserves all extra chunk metadata inside the existing metadata dict
         meta: Dict[str, Any] = {
             "chunk_id": self.chunk_id,
+            "document_fingerprint": self.document_fingerprint,
             "section_id": self.section_id,
             "parent_chunk_id": self.parent_chunk_id,
             "chunk_type": self.chunk_type,
@@ -285,6 +290,7 @@ class RegulatoryChunk(BaseModel):
         return RegulatoryContentItem(
             content_id=self.chunk_id,
             document_id=self.document_id,
+            document_fingerprint=self.document_fingerprint,
             document_name=self.document_name,
             source=self.source,
             source_url=self.source_url,
@@ -365,6 +371,10 @@ class RegulatoryDocument(BaseModel):
         default_factory=lambda: f"doc_{uuid4().hex[:10]}",
         description="Unique document identifier",
     )
+    document_fingerprint: Optional[str] = Field(
+        default=None,
+        description="Deterministic document content fingerprint",
+    )
     title: str = Field(..., description="Formal document title")
     document_type: str = Field(
         default="REGULATORY_LABEL",
@@ -404,6 +414,10 @@ class RetainedSourceDocument(BaseModel):
     """
 
     document_id: str = Field(..., description="Unique document identifier")
+    document_fingerprint: Optional[str] = Field(
+        default=None,
+        description="Deterministic document content fingerprint",
+    )
     filename: str = Field(..., description="Original filename of the uploaded document")
     file_format: str = Field(
         ...,

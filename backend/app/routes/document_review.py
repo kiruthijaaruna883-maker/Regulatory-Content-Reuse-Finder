@@ -99,15 +99,21 @@ async def upload_document(payload: DocumentUploadRequest) -> List[RegulatoryCont
         fn = payload.document_name
         if not fn.endswith((".txt", ".md", ".json", ".xml", ".html", ".pdf", ".docx", ".doc")):
             fn = f"{fn}.txt"
+        from app.services.ingestion.unified_ingestion import generate_document_fingerprint
+        doc_fp = generate_document_fingerprint(payload.content)
         store.store_source_document(
             document_id=doc_id,
             source_bytes=payload.content.encode("utf-8"),
             filename=fn,
             file_format="txt",
+            document_fingerprint=doc_fp,
         )
         for s in sections:
             s.document_id = doc_id
+            s.document_fingerprint = doc_fp
             store._content_items[s.content_id] = s
+        store._doc_to_fingerprint[doc_id] = doc_fp
+        store._fingerprint_to_docs.setdefault(doc_fp, set()).add(doc_id)
         return sections
     except Exception as exc:
         raise HTTPException(

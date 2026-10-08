@@ -95,6 +95,8 @@ export const api = {
     section = null,
     target_text = null,
     top_k = 10,
+    exclude_document_id = null,
+    document_id = null,
   }) {
     const payload = {
       query: (query || "").trim(),
@@ -103,6 +105,8 @@ export const api = {
     };
     if (section) payload.section = section;
     if (target_text) payload.target_text = target_text;
+    if (exclude_document_id) payload.exclude_document_id = exclude_document_id;
+    if (document_id) payload.document_id = document_id;
 
     const res = await fetch(`${API_BASE}/candidates/search`, {
       method: "POST",

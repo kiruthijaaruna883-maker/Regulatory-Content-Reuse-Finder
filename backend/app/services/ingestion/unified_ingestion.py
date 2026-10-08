@@ -5,8 +5,10 @@ Provides a single consistent entry point for ingesting multi-format regulatory d
 RegulatoryDocument models compatible with downstream RegulatoryChunker.
 """
 
+import hashlib
 import io
 from pathlib import Path
+import re
 from typing import Any, BinaryIO, Dict, List, Optional, TextIO, Tuple, Union
 from uuid import uuid4
 
@@ -17,6 +19,100 @@ from app.models.document import (
 )
 from app.services.chunking.regulatory_chunker import RegulatoryChunker
 from app.services.parsers import BaseDocumentParser, get_parser
+
+SCANNED_PLACEHOLDER_MARKERS = [
+    "[scanned image-only pdf",
+    "no digital text layer detected. image-only pdf",
+]
+
+
+def generate_document_fingerprint(
+    raw_data: Union[str, bytes, io.IOBase, BinaryIO, TextIO, Any],
+    parsed_doc: Optional[RegulatoryDocument] = None,
+) -> str:
+    """Generate a deterministic, stable content fingerprint for a regulatory document.
+
+    Rules:
+    1. For text-bearing documents: normalizes complete parsed document text (Unicode
+       punctuation, stripping PDF page breadcrumbs '--- [Page X] ---', normalizing line
+       endings, collapsing whitespace) and hashes the normalized text.
+    2. For scanned / image-only documents without a digital text layer: hashes the verbatim
+       raw file bytes instead of the static scanned-PDF placeholder text to avoid collisions.
+    3. Never incorporates volatile metadata (filename, title, timestamps, product, ingredient).
+    """
+    # 1. Extract raw bytes from raw_data if available
+    raw_bytes = b""
+    if isinstance(raw_data, (bytes, bytearray)):
+        raw_bytes = bytes(raw_data)
+    elif isinstance(raw_data, str):
+        raw_bytes = raw_data.encode("utf-8")
+    elif hasattr(raw_data, "read"):
+        try:
+            curr_pos = raw_data.tell() if hasattr(raw_data, "tell") else None
+            data = raw_data.read()
+            if curr_pos is not None and hasattr(raw_data, "seek"):
+                raw_data.seek(curr_pos)
+            raw_bytes = data if isinstance(data, bytes) else str(data).encode("utf-8")
+        except Exception:
+            raw_bytes = b""
+
+    # 2. Extract parsed document text
+    extracted_text = ""
+    if parsed_doc is not None:
+        if parsed_doc.raw_content and parsed_doc.raw_content.strip():
+            extracted_text = parsed_doc.raw_content
+        elif parsed_doc.sections:
+            extracted_text = "\n".join(s.raw_text for s in parsed_doc.sections if s.raw_text)
+    elif isinstance(raw_data, str):
+        extracted_text = raw_data
+
+    # 3. Check for scanned / image-only / zero-digital-text
+    is_scanned_or_empty = False
+    if not extracted_text or not extracted_text.strip():
+        is_scanned_or_empty = True
+    else:
+        lower_extracted = extracted_text.lower().strip()
+        for marker in SCANNED_PLACEHOLDER_MARKERS:
+            if marker in lower_extracted:
+                is_scanned_or_empty = True
+                break
+
+    # If scanned/image-only or empty parsed text, hash raw binary bytes
+    if is_scanned_or_empty:
+        if raw_bytes:
+            digest = hashlib.sha256(raw_bytes).hexdigest()[:16]
+            return f"fp_{digest}"
+        return f"fp_{hashlib.sha256(b'').hexdigest()[:16]}"
+
+    # 4. Text-bearing document normalization
+    # Unicode punctuation replacements
+    normalized = (
+        extracted_text.replace("\u201c", '"')
+        .replace("\u201d", '"')
+        .replace("\u2018", "'")
+        .replace("\u2019", "'")
+        .replace("\u2013", "-")
+        .replace("\u2014", "-")
+        .replace("\u00a0", " ")
+        .replace("\ufeff", "")
+    )
+    # Remove parser-specific PDF page markers e.g. "--- [Page 1] ---" or "[Page 1]"
+    normalized = re.sub(r"---\s*\[Page\s+\d+\]\s*---", "", normalized)
+    normalized = re.sub(r"\[Page\s+\d+\]", "", normalized)
+    # Normalize line endings
+    normalized = normalized.replace("\r\n", "\n").replace("\r", "\n")
+    # Collapse repeated whitespace to single space and strip
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+
+    # Re-verify that removing markers didn't reduce text to empty or scanned placeholder
+    if not normalized or any(m in normalized.lower() for m in SCANNED_PLACEHOLDER_MARKERS):
+        if raw_bytes:
+            digest = hashlib.sha256(raw_bytes).hexdigest()[:16]
+            return f"fp_{digest}"
+
+    payload = normalized.encode("utf-8")
+    digest = hashlib.sha256(payload).hexdigest()[:16]
+    return f"fp_{digest}"
 
 
 class UnifiedIngestionService:
@@ -93,6 +189,12 @@ class UnifiedIngestionService:
             document_name=doc_title,
             provenance=prov,
             metadata=meta,
+        )
+
+        # 6. Generate and assign stable document fingerprint
+        document.document_fingerprint = generate_document_fingerprint(
+            raw_data=raw_data,
+            parsed_doc=document,
         )
 
         return document

@@ -249,6 +249,8 @@ export default function CandidateComparison({
         section: targetSection?.section || null,
         target_text: targetText || null,
         top_k: Number(topK),
+        exclude_document_id: targetSection?.document_id || null,
+        document_id: targetSection?.document_id || null,
       });
 
       const items = response?.items || [];

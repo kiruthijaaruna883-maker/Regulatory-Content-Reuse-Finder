@@ -89,6 +89,7 @@ class RegulatoryChunker:
 
         doc_context = {
             "document_id": document.document_id,
+            "document_fingerprint": document.document_fingerprint,
             "document_name": document.title,
             "document_type": document.document_type,
             "jurisdiction": document.jurisdiction,
@@ -190,6 +191,7 @@ class RegulatoryChunker:
                 chunk = RegulatoryChunk(
                     chunk_id=chunk_id,
                     document_id=document_id,
+                    document_fingerprint=doc_ctx.get("document_fingerprint"),
                     section_id=section_id,
                     chunk_type=RegulatoryChunkType.TABLE_ROW.value,
                     order_index=order_index,
@@ -244,6 +246,7 @@ class RegulatoryChunker:
                 stem_chunk = RegulatoryChunk(
                     chunk_id=stem_chunk_id,
                     document_id=document_id,
+                    document_fingerprint=doc_ctx.get("document_fingerprint"),
                     section_id=section_id,
                     chunk_type=RegulatoryChunkType.PARAGRAPH.value,
                     order_index=order_index,
@@ -300,6 +303,7 @@ class RegulatoryChunker:
                 item_chunk = RegulatoryChunk(
                     chunk_id=chunk_id,
                     document_id=document_id,
+                    document_fingerprint=doc_ctx.get("document_fingerprint"),
                     section_id=section_id,
                     parent_chunk_id=stem_chunk_id,
                     chunk_type=chunk_type,
@@ -363,6 +367,7 @@ class RegulatoryChunker:
                 chunk = RegulatoryChunk(
                     chunk_id=chunk_id,
                     document_id=document_id,
+                    document_fingerprint=doc_ctx.get("document_fingerprint"),
                     section_id=section_id,
                     chunk_type=RegulatoryChunkType.STRUCTURED_FIELD.value,
                     order_index=order_index,
@@ -418,6 +423,7 @@ class RegulatoryChunker:
                 chunk = RegulatoryChunk(
                     chunk_id=chunk_id,
                     document_id=document_id,
+                    document_fingerprint=doc_ctx.get("document_fingerprint"),
                     section_id=section_id,
                     chunk_type=RegulatoryChunkType.PARAGRAPH.value,
                     order_index=order_index,

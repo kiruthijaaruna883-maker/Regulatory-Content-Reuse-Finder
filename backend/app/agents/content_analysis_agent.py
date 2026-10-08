@@ -117,6 +117,16 @@ class RegulatoryContentAnalysisAgent:
             except Exception:
                 pass
 
+        # Resolve target document fingerprint if available
+        target_fp = None
+        if effective_exclude_doc_id:
+            try:
+                candidate_store = getattr(self.retriever, "candidate_store", None)
+                if candidate_store and hasattr(candidate_store, "get_document_fingerprint"):
+                    target_fp = candidate_store.get_document_fingerprint(effective_exclude_doc_id)
+            except Exception:
+                pass
+
         # 1. Retrieve candidates via on-demand live RAG with source-document exclusion
         retrieved_tuples = await self.retriever.retrieve_candidates(
             target_text=sanitized_target,
@@ -126,6 +136,7 @@ class RegulatoryContentAnalysisAgent:
             source_filter=source_filter,
             exclude_document_id=effective_exclude_doc_id,
             exclude_content_id=target_content_id,
+            exclude_document_fingerprint=target_fp,
         )
 
         candidates_to_compare = [item for item, _, _ in retrieved_tuples]
@@ -183,13 +194,27 @@ class RegulatoryContentAnalysisAgent:
             except Exception:
                 pass
 
-        # Defensively remove candidates belonging to source document or matching target content ID
+        # Resolve target document fingerprint
+        target_fp = None
+        if effective_target_doc_id:
+            try:
+                candidate_store = getattr(self.retriever, "candidate_store", None)
+                if candidate_store and hasattr(candidate_store, "get_document_fingerprint"):
+                    target_fp = candidate_store.get_document_fingerprint(effective_target_doc_id)
+            except Exception:
+                pass
+
+        # Defensively remove candidates belonging to source document or matching target content ID / fingerprint
         filtered_candidates = [
             cand
             for cand in candidates
             if not (
                 effective_target_doc_id
                 and cand.document_id == effective_target_doc_id
+            )
+            and not (
+                target_fp
+                and getattr(cand, "document_fingerprint", None) == target_fp
             )
             and not (
                 target_content_id

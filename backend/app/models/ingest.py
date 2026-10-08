@@ -10,6 +10,10 @@ class DocumentIngestResponse(BaseModel):
     """Response returned upon ingesting a regulatory document or pasted text."""
 
     document_id: str = Field(..., description="Unique ingested document identifier")
+    document_fingerprint: Optional[str] = Field(
+        default=None,
+        description="Deterministic document content fingerprint",
+    )
     document_name: str = Field(..., description="Title of the ingested document")
     document_type: str = Field(..., description="Regulatory document type")
     jurisdiction: str = Field(..., description="Regulatory jurisdiction")
@@ -43,6 +47,10 @@ class CandidateSearchRequest(BaseModel):
     exclude_document_id: Optional[str] = Field(
         default=None,
         description="Optional document ID to exclude from candidate search results",
+    )
+    exclude_document_fingerprint: Optional[str] = Field(
+        default=None,
+        description="Optional document fingerprint to exclude from candidate search results",
     )
     document_id: Optional[str] = Field(
         default=None,
