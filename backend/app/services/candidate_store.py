@@ -347,6 +347,8 @@ class IngestedDocumentCandidateStore:
         section: Optional[str] = None,
         limit: int = 10,
         target_text: Optional[str] = None,
+        exclude_document_id: Optional[str] = None,
+        exclude_content_id: Optional[str] = None,
     ) -> List[RegulatoryContentItem]:
         """Query stored candidates against query string, target text, and optional section filter.
 
@@ -370,6 +372,12 @@ class IngestedDocumentCandidateStore:
             scored_items: List[Tuple[RegulatoryContentItem, float]] = []
 
             for item in self._content_items.values():
+                if exclude_document_id and item.document_id == exclude_document_id:
+                    continue
+
+                if exclude_content_id and item.content_id == exclude_content_id:
+                    continue
+
                 item_text_lower = item.text.lower()
                 item_tokens = set(re.findall(r"\b[a-zA-Z0-9]{3,}\b", item_text_lower))
                 score = 0.0

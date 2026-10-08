@@ -280,6 +280,7 @@ async def search_candidates(payload: CandidateSearchRequest) -> RegulatorySearch
 
     effective_target_text = payload.target_text or clean_query
     target_key_info = KeyInformation(drug=clean_query)
+    effective_exclude_doc_id = payload.exclude_document_id or payload.document_id
 
     errors: List[str] = []
     try:
@@ -289,6 +290,7 @@ async def search_candidates(payload: CandidateSearchRequest) -> RegulatorySearch
             target_key_info=target_key_info,
             top_k=payload.top_k,
             source_filter=norm_filter,
+            exclude_document_id=effective_exclude_doc_id,
         )
         items = [r[0] for r in results]
     except Exception as exc:

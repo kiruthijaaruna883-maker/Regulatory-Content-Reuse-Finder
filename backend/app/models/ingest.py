@@ -40,3 +40,11 @@ class CandidateSearchRequest(BaseModel):
         description="Optional target content snippet for relevance scoring and ranking",
     )
     top_k: int = Field(default=10, ge=1, le=50, description="Max candidates to return (1-50)")
+    exclude_document_id: Optional[str] = Field(
+        default=None,
+        description="Optional document ID to exclude from candidate search results",
+    )
+    document_id: Optional[str] = Field(
+        default=None,
+        description="Optional source document ID alias to exclude from candidate search results",
+    )

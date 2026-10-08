@@ -105,13 +105,27 @@ class RegulatoryContentAnalysisAgent:
         sanitized_target = self.sanitize_untrusted_input(target_text)
         key_info = self.extract_key_information(sanitized_target)
 
-        # 1. Retrieve candidates via on-demand live RAG
+        # Resolve effective target document ID using existing candidate store if not explicitly passed
+        effective_exclude_doc_id = target_document_id
+        if not effective_exclude_doc_id and target_content_id:
+            try:
+                candidate_store = getattr(self.retriever, "candidate_store", None)
+                if candidate_store and hasattr(candidate_store, "get_content_item"):
+                    existing_item = candidate_store.get_content_item(target_content_id)
+                    if existing_item and existing_item.document_id:
+                        effective_exclude_doc_id = existing_item.document_id
+            except Exception:
+                pass
+
+        # 1. Retrieve candidates via on-demand live RAG with source-document exclusion
         retrieved_tuples = await self.retriever.retrieve_candidates(
             target_text=sanitized_target,
             section_hint=section_name,
             target_key_info=key_info,
             top_k=top_k,
             source_filter=source_filter,
+            exclude_document_id=effective_exclude_doc_id,
+            exclude_content_id=target_content_id,
         )
 
         candidates_to_compare = [item for item, _, _ in retrieved_tuples]
@@ -127,7 +141,7 @@ class RegulatoryContentAnalysisAgent:
             candidate_scores=scores_by_id,
             candidate_providers=providers_by_id,
             target_content_id=target_content_id,
-            target_document_id=target_document_id,
+            target_document_id=effective_exclude_doc_id or target_document_id,
             target_document_name=target_document_name,
             target_subsection=target_subsection,
             target_location=target_location,
@@ -157,10 +171,36 @@ class RegulatoryContentAnalysisAgent:
         scores = candidate_scores or {}
         providers = candidate_providers or {}
 
+        # Resolve effective target document ID if missing but target_content_id is provided
+        effective_target_doc_id = target_document_id
+        if not effective_target_doc_id and target_content_id:
+            try:
+                candidate_store = getattr(self.retriever, "candidate_store", None)
+                if candidate_store and hasattr(candidate_store, "get_content_item"):
+                    existing_item = candidate_store.get_content_item(target_content_id)
+                    if existing_item and existing_item.document_id:
+                        effective_target_doc_id = existing_item.document_id
+            except Exception:
+                pass
+
+        # Defensively remove candidates belonging to source document or matching target content ID
+        filtered_candidates = [
+            cand
+            for cand in candidates
+            if not (
+                effective_target_doc_id
+                and cand.document_id == effective_target_doc_id
+            )
+            and not (
+                target_content_id
+                and cand.content_id == target_content_id
+            )
+        ]
+
         comparison_candidates: List[ComparisonCandidate] = []
         false_matches_count = 0
 
-        for cand in candidates:
+        for cand in filtered_candidates:
             sanitized_cand_text = self.sanitize_untrusted_input(cand.text)
             cand.text = sanitized_cand_text
 
