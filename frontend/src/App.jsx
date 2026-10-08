@@ -17,6 +17,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [selectedCandidate, setSelectedCandidate] = useState(null);
   const [selectedSection, setSelectedSection] = useState(null);
+  const [activeSourceDocument, setActiveSourceDocument] = useState(null);
   const [activeDecision, setActiveDecision] = useState(null);
   const [comparisonContext, setComparisonContext] = useState(null);
   const [approvedReport, setApprovedReport] = useState(null);
@@ -25,6 +26,20 @@ export default function App() {
   function handleSelectCandidateForComparison(candidate) {
     setSelectedCandidate(candidate);
     setActiveTab('comparison');
+  }
+
+  // Callback from DocumentReview upon successful document ingestion/upload
+  function handleDocumentIngested(docData) {
+    if (docData) {
+      setActiveSourceDocument({
+        document_id: docData.document_id,
+        document_fingerprint: docData.document_fingerprint,
+        document_name: docData.document_name,
+        sections: docData.sections || [],
+        jurisdiction: docData.jurisdiction,
+        document_type: docData.document_type,
+      });
+    }
   }
 
   // Transition helper from Document Review to Comparison & Decision
@@ -148,6 +163,7 @@ export default function App() {
         {activeTab === 'review' && (
           <DocumentReview
             onSelectSectionForReview={handleSelectSectionForReview}
+            onDocumentIngested={handleDocumentIngested}
           />
         )}
 
@@ -155,6 +171,7 @@ export default function App() {
           <CandidateComparison
             targetSection={selectedSection}
             candidateItem={selectedCandidate}
+            activeSourceDocument={activeSourceDocument}
             onProceedToDecision={handleProceedToDecision}
             onDecisionRecorded={handleDecisionRecorded}
           />

@@ -29,7 +29,7 @@ const ALLOWED_EXTENSIONS = [
   '.txt'
 ];
 
-export default function DocumentReview({ onSelectSectionForReview }) {
+export default function DocumentReview({ onSelectSectionForReview, onDocumentIngested }) {
   // Upload is the primary / default mode
   const [inputMode, setInputMode] = useState('file'); // 'file' | 'paste'
   const [selectedFile, setSelectedFile] = useState(null);
@@ -151,25 +151,49 @@ export default function DocumentReview({ onSelectSectionForReview }) {
         const enriched = result.sections.map((sec) => ({
           ...sec,
           document_id: result.document_id,
+          document_fingerprint: result.document_fingerprint || sec.document_fingerprint,
           document_name: result.document_name,
           jurisdiction: result.jurisdiction,
           document_type: result.document_type,
         }));
         setExtractedSections(enriched);
         setActiveSectionId(enriched[0].content_id);
+        if (onDocumentIngested) {
+          onDocumentIngested({
+            document_id: result.document_id,
+            document_fingerprint: result.document_fingerprint,
+            document_name: result.document_name,
+            sections: enriched,
+            jurisdiction: result.jurisdiction,
+            document_type: result.document_type,
+          });
+        }
       } else if (inputMode === 'paste' && docContent.trim()) {
         try {
           const sections = await api.uploadDocument(cleanDocName, docContent.trim());
+          const docId = result?.document_id || sections?.[0]?.document_id;
+          const docFp = result?.document_fingerprint || sections?.[0]?.document_fingerprint;
           const enriched = (sections || []).map((sec) => ({
             ...sec,
-            document_id: result.document_id,
-            document_name: result.document_name,
-            jurisdiction: result.jurisdiction,
-            document_type: result.document_type,
+            document_id: docId || sec.document_id,
+            document_fingerprint: docFp || sec.document_fingerprint,
+            document_name: result?.document_name || cleanDocName,
+            jurisdiction: result?.jurisdiction || jurisdiction,
+            document_type: result?.document_type || docType,
           }));
           setExtractedSections(enriched);
           if (enriched.length > 0) {
             setActiveSectionId(enriched[0].content_id);
+          }
+          if (onDocumentIngested) {
+            onDocumentIngested({
+              document_id: docId,
+              document_fingerprint: docFp,
+              document_name: result?.document_name || cleanDocName,
+              sections: enriched,
+              jurisdiction: result?.jurisdiction || jurisdiction,
+              document_type: result?.document_type || docType,
+            });
           }
         } catch {
           // Non-blocking fallback if secondary segmentation fails

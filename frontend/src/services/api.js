@@ -97,7 +97,9 @@ export const api = {
     top_k = 10,
     exclude_document_id = null,
     document_id = null,
-  }) {
+    exclude_document_fingerprint = null,
+    target_content_id = null,
+  } = {}) {
     const payload = {
       query: (query || "").trim(),
       source_filter,
@@ -107,6 +109,8 @@ export const api = {
     if (target_text) payload.target_text = target_text;
     if (exclude_document_id) payload.exclude_document_id = exclude_document_id;
     if (document_id) payload.document_id = document_id;
+    if (exclude_document_fingerprint) payload.exclude_document_fingerprint = exclude_document_fingerprint;
+    if (target_content_id) payload.target_content_id = target_content_id;
 
     const res = await fetch(`${API_BASE}/candidates/search`, {
       method: "POST",
@@ -129,6 +133,8 @@ export const api = {
     if (options.target_content_id) payload.target_content_id = options.target_content_id;
     if (options.document_name) payload.document_name = options.document_name;
     if (options.document_id) payload.document_id = options.document_id;
+    if (options.exclude_document_id) payload.exclude_document_id = options.exclude_document_id;
+    if (options.exclude_document_fingerprint) payload.exclude_document_fingerprint = options.exclude_document_fingerprint;
     if (options.subsection) payload.subsection = options.subsection;
     if (options.location) payload.location = options.location;
     if (options.page !== undefined && options.page !== null) payload.page = options.page;

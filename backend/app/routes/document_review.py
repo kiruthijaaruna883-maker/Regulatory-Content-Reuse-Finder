@@ -99,21 +99,50 @@ async def upload_document(payload: DocumentUploadRequest) -> List[RegulatoryCont
         fn = payload.document_name
         if not fn.endswith((".txt", ".md", ".json", ".xml", ".html", ".pdf", ".docx", ".doc")):
             fn = f"{fn}.txt"
+        from app.models.document import RegulatoryChunk, RegulatoryDocument, RegulatoryProvenance
         from app.services.ingestion.unified_ingestion import generate_document_fingerprint
+
         doc_fp = generate_document_fingerprint(payload.content)
-        store.store_source_document(
+
+        # Canonical document container
+        doc = RegulatoryDocument(
             document_id=doc_id,
+            document_fingerprint=doc_fp,
+            title=payload.document_name,
+            provenance=RegulatoryProvenance(
+                source_repository="InternalDraft",
+                source_identifier=doc_id,
+            ),
+            raw_content=payload.content,
+        )
+
+        # Build chunks representing extracted sections
+        chunks = []
+        for i, s in enumerate(sections):
+            s.document_id = doc_id
+            s.document_fingerprint = doc_fp
+            chunk = RegulatoryChunk(
+                chunk_id=s.content_id,
+                document_id=doc_id,
+                section_id=f"sec_{i}_{s.content_id}",
+                document_fingerprint=doc_fp,
+                document_name=payload.document_name,
+                section_title=s.section,
+                content=s.text,
+                order_index=i,
+                source="InternalDraft",
+                source_identifier=doc_id,
+            )
+            chunks.append(chunk)
+
+        # Register through canonical candidate store lifecycle
+        store.add_document(
+            document=doc,
+            chunks=chunks,
             source_bytes=payload.content.encode("utf-8"),
             filename=fn,
             file_format="txt",
-            document_fingerprint=doc_fp,
         )
-        for s in sections:
-            s.document_id = doc_id
-            s.document_fingerprint = doc_fp
-            store._content_items[s.content_id] = s
-        store._doc_to_fingerprint[doc_id] = doc_fp
-        store._fingerprint_to_docs.setdefault(doc_fp, set()).add(doc_id)
         return sections
     except Exception as exc:
         raise HTTPException(

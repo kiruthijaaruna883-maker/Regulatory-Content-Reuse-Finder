@@ -860,3 +860,278 @@ def test_candidate_store_fingerprint_cleanup_on_remove():
     assert store.get_document_fingerprint("doc_fp_clean") is None
     assert "doc_fp_clean" not in store._doc_to_fingerprint
     assert fp not in store._fingerprint_to_docs
+
+
+def test_exact_same_document_uploaded_twice_with_different_document_ids():
+    """Verify exact same document content uploaded under different document_ids is excluded by fingerprint."""
+    identical_text = (
+        "INDICATIONS AND USAGE\n"
+        "Indicated for acute moderate pain in adults.\n\n"
+        "DOSAGE AND ADMINISTRATION\n"
+        "Take 500 mg orally every 6 hours as needed."
+    )
+    # Upload first instance
+    res1 = client.post("/documents/ingest", data={"pasted_text": identical_text, "document_name": "Label Draft A"})
+    assert res1.status_code == 200
+    doc_id1 = res1.json()["document_id"]
+    fp1 = res1.json()["document_fingerprint"]
+
+    # Upload second instance with exact same content but different name
+    res2 = client.post("/documents/ingest", data={"pasted_text": identical_text, "document_name": "Label Draft B"})
+    assert res2.status_code == 200
+    doc_id2 = res2.json()["document_id"]
+    fp2 = res2.json()["document_fingerprint"]
+
+    assert doc_id1 != doc_id2
+    assert fp1 == fp2  # Identical content yields identical fingerprint
+
+    # Exclude Document 1 by document_id or fingerprint
+    search_res = client.post(
+        "/candidates/search",
+        json={
+            "query": "pain",
+            "source_filter": "ingested",
+            "exclude_document_id": doc_id1,
+            "exclude_document_fingerprint": fp1,
+        },
+    )
+    assert search_res.status_code == 200
+    items = search_res.json()["items"]
+    # Neither instance should appear in results
+    found_doc_ids = {item["document_id"] for item in items}
+    assert doc_id1 not in found_doc_ids
+    assert doc_id2 not in found_doc_ids
+
+
+def test_direct_comparison_navigation_with_active_source_document():
+    """Verify navigating directly to Comparison with active source document excludes source document even with fallback target text."""
+    source_text = (
+        "DOSAGE AND ADMINISTRATION\n"
+        "Adults: Take 250 mg orally twice daily with a full glass of water."
+    )
+    res_ingest = client.post("/documents/ingest", json={"pasted_text": source_text, "document_name": "Source Dossier"})
+    assert res_ingest.status_code == 200
+    doc_id = res_ingest.json()["document_id"]
+    fp = res_ingest.json()["document_fingerprint"]
+
+    # Ingest a distinct precedent document that should remain discoverable
+    precedent_text = (
+        "DOSAGE AND ADMINISTRATION\n"
+        "Adults: Take 500 mg orally twice daily with a full glass of water."
+    )
+    res_prec = client.post("/documents/ingest", json={"pasted_text": precedent_text, "document_name": "Precedent Guide"})
+    assert res_prec.status_code == 200
+    prec_doc_id = res_prec.json()["document_id"]
+
+    # Direct Comparison navigation uses activeSourceDocument section text / fallback, and sends activeSourceDocument identity
+    analyze_res = client.post(
+        "/content/analyze",
+        json={
+            "target_text": "Adults: Take 250 mg orally twice daily with a full glass of water.",
+            "section_name": "DOSAGE AND ADMINISTRATION",
+            "retrieve_live": True,
+            "source_filter": "ingested",
+            "document_id": doc_id,
+            "exclude_document_id": doc_id,
+            "exclude_document_fingerprint": fp,
+        },
+    )
+    assert analyze_res.status_code == 200
+    candidates = analyze_res.json().get("candidates", [])
+    cand_doc_ids = {c["content_item"]["document_id"] for c in candidates}
+    assert doc_id not in cand_doc_ids
+    assert prec_doc_id in cand_doc_ids
+
+
+def test_post_documents_upload_lifecycle_parity():
+    """Verify POST /documents/upload uses canonical store lifecycle and supports candidate exclusion."""
+    store = get_candidate_store()
+    raw_text = (
+        "INDICATIONS AND USAGE\n"
+        "Indicated for rheumatoid arthritis management.\n\n"
+        "DOSAGE AND ADMINISTRATION\n"
+        "Administer 10 mg weekly subcutaneously."
+    )
+    res_upload = client.post(
+        "/documents/upload",
+        json={"document_name": "Arthritis Protocol", "content": raw_text},
+    )
+    assert res_upload.status_code == 200
+    sections = res_upload.json()
+    assert len(sections) == 2
+    doc_id = sections[0]["document_id"]
+    doc_fp = sections[0]["document_fingerprint"]
+    assert doc_id is not None
+    assert doc_fp is not None
+
+    # Lifecycle parity: registered in canonical store structures
+    stored_doc = store.get_document(doc_id)
+    assert stored_doc is not None
+    assert stored_doc.document_fingerprint == doc_fp
+    assert store.get_document_fingerprint(doc_id) == doc_fp
+    assert store.has_source_document(doc_id) is True
+    assert len(store.list_content_items(doc_id)) == 2
+
+    # Verify exclusion works with upload
+    search_res = client.post(
+        "/candidates/search",
+        json={
+            "query": "arthritis",
+            "source_filter": "ingested",
+            "exclude_document_id": doc_id,
+            "exclude_document_fingerprint": doc_fp,
+        },
+    )
+    assert search_res.status_code == 200
+    found_doc_ids = {it["document_id"] for it in search_res.json()["items"]}
+    assert doc_id not in found_doc_ids
+
+
+def test_adapter_fingerprint_preservation():
+    """Verify regulatory_adapter preserves document_fingerprint when converting RegulatoryChunk to RegulatoryContentItem."""
+    from app.services.compatibility.regulatory_adapter import chunk_to_content_item, section_to_content_item
+    chunk = RegulatoryChunk(
+        chunk_id="chk_test_fp_adapt",
+        document_id="doc_test_adapt",
+        section_id="sec_test_adapt",
+        document_fingerprint="fp_canonical_sample_999",
+        document_name="Adapter Test Doc",
+        section_title="Dosage",
+        content="Take 10 mg daily.",
+        source="InternalDraft",
+    )
+    item = chunk_to_content_item(chunk)
+    assert item.document_fingerprint == "fp_canonical_sample_999"
+    assert item.document_id == "doc_test_adapt"
+
+    doc = RegulatoryDocument(
+        document_id="doc_tree_parent",
+        document_fingerprint="fp_doc_tree_888",
+        title="Tree Doc",
+        provenance=RegulatoryProvenance(source_repository="InternalDraft"),
+    )
+    section = RegulatorySection(
+        section_id="sec_tree_child",
+        heading_raw="Warnings",
+        raw_text="Warning statement text.",
+    )
+    item_sec = section_to_content_item(section, doc)
+    assert item_sec.document_fingerprint == "fp_doc_tree_888"
+
+
+def test_presupplied_candidate_list_containing_source_document():
+    """Verify POST /content/analyze removes source document candidates from pre-supplied candidate list."""
+    source_fp = "fp_target_dossier_001"
+    cand_self = RegulatoryContentItem(
+        content_id="cand_self_chunk",
+        document_id="doc_target_dossier",
+        document_fingerprint=source_fp,
+        document_name="Target Dossier",
+        source="InternalDraft",
+        section="Dosage and Administration",
+        text="Adults: Take 100 mg once daily.",
+    )
+    cand_external = RegulatoryContentItem(
+        content_id="cand_ext_dailymed",
+        document_id="doc_dailymed_ref",
+        document_name="DailyMed Reference Label",
+        source="DailyMed",
+        section="Dosage and Administration",
+        text="Adults: Take 100 mg to 200 mg once daily.",
+    )
+
+    res = client.post(
+        "/content/analyze",
+        json={
+            "target_text": "Adults: Take 100 mg once daily with food.",
+            "candidates": [cand_self.model_dump(), cand_external.model_dump()],
+            "document_id": "doc_target_dossier",
+            "exclude_document_id": "doc_target_dossier",
+            "exclude_document_fingerprint": source_fp,
+        },
+    )
+    assert res.status_code == 200
+    candidates = res.json().get("candidates", [])
+    evaluated_ids = [c["content_item"]["content_id"] for c in candidates]
+    # Source chunk must be pruned
+    assert "cand_self_chunk" not in evaluated_ids
+    # External candidate must proceed to 6D evaluation
+    assert "cand_ext_dailymed" in evaluated_ids
+
+
+def test_same_name_different_content_remains_eligible():
+    """Verify documents with the exact same title/name but different content remain eligible precedents."""
+    text_a = "INDICATIONS AND USAGE\nPediatric formulation for juvenile arthritis: 5 mg daily."
+    text_b = "INDICATIONS AND USAGE\nAdult formulation for osteoarthritis: 200 mg twice daily."
+
+    # Both documents share the exact same title "Standard Prescribing Guide"
+    res_a = client.post("/documents/ingest", data={"pasted_text": text_a, "document_name": "Standard Prescribing Guide"})
+    res_b = client.post("/documents/ingest", data={"pasted_text": text_b, "document_name": "Standard Prescribing Guide"})
+
+    assert res_a.status_code == 200
+    assert res_b.status_code == 200
+
+    doc_a_id = res_a.json()["document_id"]
+    doc_a_fp = res_a.json()["document_fingerprint"]
+    doc_b_id = res_b.json()["document_id"]
+    doc_b_fp = res_b.json()["document_fingerprint"]
+
+    assert doc_a_id != doc_b_id
+    assert doc_a_fp != doc_b_fp
+
+    # Search excluding Document A
+    search_res = client.post(
+        "/candidates/search",
+        json={
+            "query": "arthritis",
+            "source_filter": "ingested",
+            "exclude_document_id": doc_a_id,
+            "exclude_document_fingerprint": doc_a_fp,
+        },
+    )
+    assert search_res.status_code == 200
+    found_doc_ids = {it["document_id"] for it in search_res.json()["items"]}
+    assert doc_a_id not in found_doc_ids
+    assert doc_b_id in found_doc_ids  # Same name, different content: MUST remain eligible!
+
+
+def test_external_dailymed_openfda_candidates_remain_eligible():
+    """Verify exclusion of internal source document never filters external DailyMed or openFDA precedents."""
+    source_fp = "fp_internal_strict_777"
+    source_item = RegulatoryContentItem(
+        content_id="internal_chk_1",
+        document_id="doc_internal_strict",
+        document_fingerprint=source_fp,
+        document_name="Internal Label",
+        source="InternalDraft",
+        section="Indications",
+        text="Internal indication text.",
+    )
+    dailymed_item = RegulatoryContentItem(
+        content_id="dm_chk_1",
+        document_id="dailymed_set_123",
+        document_name="Approved Drug Label",
+        source="DailyMed",
+        section="Indications",
+        text="FDA approved indication text.",
+    )
+    openfda_item = RegulatoryContentItem(
+        content_id="fda_chk_1",
+        document_id="openfda_app_456",
+        document_name="Package Insert",
+        source="openFDA",
+        section="Indications",
+        text="openFDA official label text.",
+    )
+
+    agent = RegulatoryContentAnalysisAgent()
+    result = agent.analyze_and_compare(
+        target_text="Internal indication text for acute headache.",
+        candidates=[source_item, dailymed_item, openfda_item],
+        exclude_document_id="doc_internal_strict",
+        exclude_document_fingerprint=source_fp,
+    )
+    res_cands = [c.content_item.content_id for c in result.candidates]
+    assert "internal_chk_1" not in res_cands
+    assert "dm_chk_1" in res_cands
+    assert "fda_chk_1" in res_cands

@@ -56,3 +56,7 @@ class CandidateSearchRequest(BaseModel):
         default=None,
         description="Optional source document ID alias to exclude from candidate search results",
     )
+    target_content_id: Optional[str] = Field(
+        default=None,
+        description="Optional target content ID to exclude from candidate search results",
+    )

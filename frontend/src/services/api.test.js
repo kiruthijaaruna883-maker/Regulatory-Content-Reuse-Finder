@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert';
 import { api } from './api.js';
 
-test('api.searchCandidates forwards exclude_document_id and document_id in request body', async () => {
+test('api.searchCandidates forwards exclude_document_id, exclude_document_fingerprint, document_id, and target_content_id', async () => {
   let capturedUrl = null;
   let capturedBody = null;
 
@@ -25,6 +25,8 @@ test('api.searchCandidates forwards exclude_document_id and document_id in reque
       top_k: 5,
       exclude_document_id: 'doc_source_test_01',
       document_id: 'doc_source_test_01',
+      exclude_document_fingerprint: 'fp_abc123',
+      target_content_id: 'cnt_001',
     });
 
     assert.ok(capturedUrl.includes('/candidates/search'));
@@ -35,6 +37,79 @@ test('api.searchCandidates forwards exclude_document_id and document_id in reque
     assert.strictEqual(capturedBody.top_k, 5);
     assert.strictEqual(capturedBody.exclude_document_id, 'doc_source_test_01');
     assert.strictEqual(capturedBody.document_id, 'doc_source_test_01');
+    assert.strictEqual(capturedBody.exclude_document_fingerprint, 'fp_abc123');
+    assert.strictEqual(capturedBody.target_content_id, 'cnt_001');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('api.analyzeCandidates forwards exclude_document_id and exclude_document_fingerprint in request body', async () => {
+  let capturedUrl = null;
+  let capturedBody = null;
+
+  const originalFetch = global.fetch;
+  global.fetch = async (url, options) => {
+    capturedUrl = url;
+    capturedBody = JSON.parse(options.body);
+    return {
+      ok: true,
+      json: async () => ({ candidates: [] }),
+    };
+  };
+
+  try {
+    await api.analyzeCandidates(
+      'Target clinical text for review',
+      [],
+      'DOSAGE AND ADMINISTRATION',
+      {
+        document_id: 'doc_target_42',
+        exclude_document_id: 'doc_target_42',
+        exclude_document_fingerprint: 'fp_xyz789',
+        target_content_id: 'content_sec_1',
+      }
+    );
+
+    assert.ok(capturedUrl.includes('/content/analyze'));
+    assert.strictEqual(capturedBody.target_text, 'Target clinical text for review');
+    assert.strictEqual(capturedBody.section_name, 'DOSAGE AND ADMINISTRATION');
+    assert.strictEqual(capturedBody.document_id, 'doc_target_42');
+    assert.strictEqual(capturedBody.exclude_document_id, 'doc_target_42');
+    assert.strictEqual(capturedBody.exclude_document_fingerprint, 'fp_xyz789');
+    assert.strictEqual(capturedBody.target_content_id, 'content_sec_1');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('api.searchCandidates and api.analyzeCandidates preserve backward compatibility when exclusions are omitted', async () => {
+  let capturedSearchBody = null;
+  let capturedAnalyzeBody = null;
+
+  const originalFetch = global.fetch;
+  global.fetch = async (url, options) => {
+    if (url.includes('/candidates/search')) {
+      capturedSearchBody = JSON.parse(options.body);
+      return { ok: true, json: async () => ({ items: [] }) };
+    }
+    if (url.includes('/content/analyze')) {
+      capturedAnalyzeBody = JSON.parse(options.body);
+      return { ok: true, json: async () => ({ candidates: [] }) };
+    }
+    return { ok: true, json: async () => ({}) };
+  };
+
+  try {
+    await api.searchCandidates({ query: 'aspirin' });
+    assert.strictEqual(capturedSearchBody.query, 'aspirin');
+    assert.strictEqual(capturedSearchBody.exclude_document_id, undefined);
+    assert.strictEqual(capturedSearchBody.exclude_document_fingerprint, undefined);
+
+    await api.analyzeCandidates('Some target text');
+    assert.strictEqual(capturedAnalyzeBody.target_text, 'Some target text');
+    assert.strictEqual(capturedAnalyzeBody.exclude_document_id, undefined);
+    assert.strictEqual(capturedAnalyzeBody.exclude_document_fingerprint, undefined);
   } finally {
     global.fetch = originalFetch;
   }

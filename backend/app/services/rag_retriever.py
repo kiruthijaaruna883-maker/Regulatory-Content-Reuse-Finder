@@ -95,6 +95,11 @@ class LiveRAGRetriever:
             except Exception as exc:
                 logger.warning("Live regulatory query failed: %s", exc)
 
+        # Resolve target document fingerprint: use supplied directly, or resolve via canonical store
+        target_fp = exclude_document_fingerprint
+        if not target_fp and exclude_document_id and hasattr(self.candidate_store, "get_document_fingerprint"):
+            target_fp = self.candidate_store.get_document_fingerprint(exclude_document_id)
+
         # 2b. Query ingested document candidate store (newly ingested regulatory documents)
         if norm_filter in ("all", "ingested", "internal"):
             try:
@@ -105,17 +110,13 @@ class LiveRAGRetriever:
                     target_text=target_text,
                     exclude_document_id=exclude_document_id,
                     exclude_content_id=exclude_content_id,
-                    exclude_document_fingerprint=exclude_document_fingerprint,
+                    exclude_document_fingerprint=target_fp,
                 )
                 raw_candidates.extend(ingested_candidates)
             except Exception as exc:
                 logger.warning("Ingested candidate store query failed: %s", exc)
 
         # Defensive exclusion filter to ensure source document chunks never reach vector similarity
-        target_fp = exclude_document_fingerprint
-        if not target_fp and exclude_document_id and hasattr(self.candidate_store, "get_document_fingerprint"):
-            target_fp = self.candidate_store.get_document_fingerprint(exclude_document_id)
-
         raw_candidates = [
             candidate
             for candidate in raw_candidates

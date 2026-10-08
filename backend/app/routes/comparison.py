@@ -26,6 +26,8 @@ class AnalyzeRequest(BaseModel):
     target_content_id: Optional[str] = Field(default=None, description="Optional target content identifier")
     document_name: Optional[str] = Field(default=None, description="Optional target document name")
     document_id: Optional[str] = Field(default=None, description="Optional target document identifier")
+    exclude_document_id: Optional[str] = Field(default=None, description="Optional document ID to exclude from candidate comparison")
+    exclude_document_fingerprint: Optional[str] = Field(default=None, description="Optional document fingerprint to exclude from candidate comparison")
     subsection: Optional[str] = Field(default=None, description="Optional target subsection heading or number")
     location: Optional[str] = Field(default=None, description="Optional target physical or structural location")
     page: Optional[int] = Field(default=None, description="Optional target page number")
@@ -41,6 +43,7 @@ class ComparePairRequest(BaseModel):
 @router.post("/analyze", response_model=ContentComparisonResult, summary="Analyze candidate alignment with Agent 1")
 async def analyze_candidates(payload: AnalyzeRequest) -> ContentComparisonResult:
     """Evaluate candidate items against target content, rank by similarity, and detect differences."""
+    effective_exclude_doc_id = payload.exclude_document_id or payload.document_id
     try:
         if payload.candidates:
             return analysis_agent.analyze_and_compare(
@@ -48,12 +51,14 @@ async def analyze_candidates(payload: AnalyzeRequest) -> ContentComparisonResult
                 candidates=payload.candidates,
                 section_name=payload.section_name,
                 target_content_id=payload.target_content_id,
-                target_document_id=payload.document_id,
+                target_document_id=effective_exclude_doc_id,
                 target_document_name=payload.document_name,
                 target_subsection=payload.subsection,
                 target_location=payload.location,
                 target_page=payload.page,
                 target_content_type=payload.content_type,
+                exclude_document_id=effective_exclude_doc_id,
+                exclude_document_fingerprint=payload.exclude_document_fingerprint,
             )
         else:
             # On-demand live RAG retrieval and analysis
@@ -63,12 +68,14 @@ async def analyze_candidates(payload: AnalyzeRequest) -> ContentComparisonResult
                 source_filter=payload.source_filter,
                 top_k=payload.top_k,
                 target_content_id=payload.target_content_id,
-                target_document_id=payload.document_id,
+                target_document_id=effective_exclude_doc_id,
                 target_document_name=payload.document_name,
                 target_subsection=payload.subsection,
                 target_location=payload.location,
                 target_page=payload.page,
                 target_content_type=payload.content_type,
+                exclude_document_id=effective_exclude_doc_id,
+                exclude_document_fingerprint=payload.exclude_document_fingerprint,
             )
     except Exception as exc:
         raise HTTPException(

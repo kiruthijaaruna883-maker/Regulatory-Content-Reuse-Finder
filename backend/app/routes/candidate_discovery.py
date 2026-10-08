@@ -293,6 +293,7 @@ async def search_candidates(payload: CandidateSearchRequest) -> RegulatorySearch
             top_k=payload.top_k,
             source_filter=norm_filter,
             exclude_document_id=effective_exclude_doc_id,
+            exclude_content_id=payload.target_content_id,
             exclude_document_fingerprint=payload.exclude_document_fingerprint,
         )
         items = [r[0] for r in results]

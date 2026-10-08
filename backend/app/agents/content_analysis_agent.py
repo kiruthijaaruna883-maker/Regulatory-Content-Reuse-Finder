@@ -97,6 +97,8 @@ class RegulatoryContentAnalysisAgent:
         target_location: Optional[str] = None,
         target_page: Optional[int] = None,
         target_content_type: Optional[str] = None,
+        exclude_document_id: Optional[str] = None,
+        exclude_document_fingerprint: Optional[str] = None,
     ) -> ContentComparisonResult:
         """Complete Agent 1 pipeline: Extract -> Classify -> Live RAG Retrieve -> 6D Compare -> Evidence.
 
@@ -106,7 +108,7 @@ class RegulatoryContentAnalysisAgent:
         key_info = self.extract_key_information(sanitized_target)
 
         # Resolve effective target document ID using existing candidate store if not explicitly passed
-        effective_exclude_doc_id = target_document_id
+        effective_exclude_doc_id = exclude_document_id or target_document_id
         if not effective_exclude_doc_id and target_content_id:
             try:
                 candidate_store = getattr(self.retriever, "candidate_store", None)
@@ -117,9 +119,9 @@ class RegulatoryContentAnalysisAgent:
             except Exception:
                 pass
 
-        # Resolve target document fingerprint if available
-        target_fp = None
-        if effective_exclude_doc_id:
+        # Resolve target document fingerprint: if explicit fingerprint supplied, use directly; otherwise resolve via store
+        target_fp = exclude_document_fingerprint
+        if not target_fp and effective_exclude_doc_id:
             try:
                 candidate_store = getattr(self.retriever, "candidate_store", None)
                 if candidate_store and hasattr(candidate_store, "get_document_fingerprint"):
@@ -158,6 +160,8 @@ class RegulatoryContentAnalysisAgent:
             target_location=target_location,
             target_page=target_page,
             target_content_type=target_content_type,
+            exclude_document_id=effective_exclude_doc_id,
+            exclude_document_fingerprint=target_fp,
         )
 
     def analyze_and_compare(
@@ -175,6 +179,8 @@ class RegulatoryContentAnalysisAgent:
         target_location: Optional[str] = None,
         target_page: Optional[int] = None,
         target_content_type: Optional[str] = None,
+        exclude_document_id: Optional[str] = None,
+        exclude_document_fingerprint: Optional[str] = None,
     ) -> ContentComparisonResult:
         """Run multi-dimensional comparison against provided candidate items with false-match protection."""
         sanitized_target = self.sanitize_untrusted_input(target_text)
@@ -183,7 +189,7 @@ class RegulatoryContentAnalysisAgent:
         providers = candidate_providers or {}
 
         # Resolve effective target document ID if missing but target_content_id is provided
-        effective_target_doc_id = target_document_id
+        effective_target_doc_id = exclude_document_id or target_document_id
         if not effective_target_doc_id and target_content_id:
             try:
                 candidate_store = getattr(self.retriever, "candidate_store", None)
@@ -194,9 +200,9 @@ class RegulatoryContentAnalysisAgent:
             except Exception:
                 pass
 
-        # Resolve target document fingerprint
-        target_fp = None
-        if effective_target_doc_id:
+        # Resolve target document fingerprint: if explicit fingerprint supplied, use directly; otherwise resolve via store
+        target_fp = exclude_document_fingerprint
+        if not target_fp and effective_target_doc_id:
             try:
                 candidate_store = getattr(self.retriever, "candidate_store", None)
                 if candidate_store and hasattr(candidate_store, "get_document_fingerprint"):

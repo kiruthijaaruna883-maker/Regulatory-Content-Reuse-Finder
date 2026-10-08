@@ -141,6 +141,7 @@ def chunk_to_content_item(chunk: RegulatoryChunk) -> RegulatoryContentItem:
     return RegulatoryContentItem(
         content_id=chunk.chunk_id,
         document_id=chunk.document_id,
+        document_fingerprint=chunk.document_fingerprint,
         document_name=chunk.document_name,
         source=chunk.source,
         source_url=chunk.source_url,
@@ -246,6 +247,7 @@ def section_to_content_item(
     return RegulatoryContentItem(
         content_id=section.section_id,
         document_id=doc_id,
+        document_fingerprint=document.document_fingerprint if document else None,
         document_name=doc_name,
         source=source_repo,
         source_url=source_url,

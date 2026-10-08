@@ -62,14 +62,21 @@ const DIMENSIONS = [
 export default function CandidateComparison({
   targetSection,
   candidateItem,
+  activeSourceDocument,
   _onProceedToDecision,
   onDecisionRecorded,
 }) {
+  // Resolve effective source document identity (targetSection takes precedence, activeSourceDocument as fallback)
+  const effectiveDocumentId = targetSection?.document_id || activeSourceDocument?.document_id || null;
+  const effectiveDocumentFingerprint = targetSection?.document_fingerprint || activeSourceDocument?.document_fingerprint || null;
+  const effectiveDocumentName = targetSection?.document_name || activeSourceDocument?.document_name || null;
+  const effectiveTargetContentId = targetSection?.content_id || (activeSourceDocument?.sections?.length > 0 ? activeSourceDocument.sections[0].content_id : null) || null;
+
   // Target Content State
-  const [targetText, setTargetText] = useState(
-    targetSection?.text ||
-      'Adults: Take 1 tablet (500 mg) orally every 4 to 6 hours with water. Do not exceed 6 tablets within 24 hours.'
-  );
+  const initialTargetText = targetSection?.text ||
+    (activeSourceDocument?.sections?.length > 0 ? activeSourceDocument.sections[0].text : null) ||
+    'Adults: Take 1 tablet (500 mg) orally every 4 to 6 hours with water. Do not exceed 6 tablets within 24 hours.';
+  const [targetText, setTargetText] = useState(initialTargetText);
 
   // Active Selected Candidate State (initialized from candidateItem prop)
   const initialCandidateUnderlying =
@@ -96,9 +103,12 @@ export default function CandidateComparison({
   const [recordedDecision, setRecordedDecision] = useState(null);
 
   // Candidate Discovery Search State
-  const [searchQuery, setSearchQuery] = useState(
-    targetSection?.section || targetSection?.document_name || 'aspirin'
-  );
+  const initialSearchQuery = targetSection?.section ||
+    targetSection?.document_name ||
+    activeSourceDocument?.document_name ||
+    (activeSourceDocument?.sections?.length > 0 ? (activeSourceDocument.sections[0].section || activeSourceDocument.sections[0].document_name) : null) ||
+    'aspirin';
+  const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
   const [sourceFilter, setSourceFilter] = useState('all');
   const [topK, setTopK] = useState(10);
   const [searchResults, setSearchResults] = useState([]);
@@ -121,15 +131,21 @@ export default function CandidateComparison({
   // Auto-discovery key ref to prevent repeated duplicate auto-discovery calls
   const autoDiscoveredKeyRef = useRef(null);
 
-  // Adjust state when targetSection prop changes
+  // Adjust state when targetSection or activeSourceDocument prop changes
   const [prevTargetSection, setPrevTargetSection] = useState(targetSection);
-  if (targetSection !== prevTargetSection) {
+  const [prevSourceDoc, setPrevSourceDoc] = useState(activeSourceDocument);
+  if (targetSection !== prevTargetSection || activeSourceDocument !== prevSourceDoc) {
     setPrevTargetSection(targetSection);
+    setPrevSourceDoc(activeSourceDocument);
     if (targetSection?.text) {
       setTargetText(targetSection.text);
+    } else if (!targetSection && activeSourceDocument?.sections?.length > 0) {
+      setTargetText(activeSourceDocument.sections[0].text);
     }
     if (targetSection?.section) {
       setSearchQuery(targetSection.section);
+    } else if (!targetSection && activeSourceDocument?.document_name) {
+      setSearchQuery(activeSourceDocument.document_name);
     }
     setAnalysisResult(null);
     setDifferences([]);
@@ -161,7 +177,11 @@ export default function CandidateComparison({
 
   // Automatic Candidate Discovery & 6D Evaluation on Mount / Section Change
   useEffect(() => {
-    const currentKey = targetSection?.content_id || targetSection?.section || (targetText ? targetText.slice(0, 60) : null);
+    const currentKey = targetSection?.content_id ||
+      effectiveTargetContentId ||
+      targetSection?.section ||
+      effectiveDocumentId ||
+      (targetText ? targetText.slice(0, 60) : null);
     if (!currentKey || autoDiscoveredKeyRef.current === currentKey) {
       return;
     }
@@ -179,9 +199,15 @@ export default function CandidateComparison({
           source_filter: 'all',
           top_k: 10,
         };
-        if (targetSection?.content_id) options.target_content_id = targetSection.content_id;
-        if (targetSection?.document_name) options.document_name = targetSection.document_name;
-        if (targetSection?.document_id) options.document_id = targetSection.document_id;
+        if (effectiveTargetContentId) options.target_content_id = effectiveTargetContentId;
+        if (effectiveDocumentName) options.document_name = effectiveDocumentName;
+        if (effectiveDocumentId) {
+          options.document_id = effectiveDocumentId;
+          options.exclude_document_id = effectiveDocumentId;
+        }
+        if (effectiveDocumentFingerprint) {
+          options.exclude_document_fingerprint = effectiveDocumentFingerprint;
+        }
         if (targetSection?.subsection) options.subsection = targetSection.subsection;
         if (targetSection?.location) options.location = targetSection.location;
         if (targetSection?.page !== undefined && targetSection?.page !== null) options.page = targetSection.page;
@@ -228,7 +254,17 @@ export default function CandidateComparison({
     }
 
     triggerAutoDiscovery();
-  }, [targetSection, targetText, candidateItem, candidateText]);
+  }, [
+    targetSection,
+    activeSourceDocument,
+    targetText,
+    candidateItem,
+    candidateText,
+    effectiveDocumentId,
+    effectiveDocumentFingerprint,
+    effectiveDocumentName,
+    effectiveTargetContentId,
+  ]);
 
   // Trigger candidate discovery via api.searchCandidates
   async function handleDiscoverCandidates(e) {
@@ -249,8 +285,10 @@ export default function CandidateComparison({
         section: targetSection?.section || null,
         target_text: targetText || null,
         top_k: Number(topK),
-        exclude_document_id: targetSection?.document_id || null,
-        document_id: targetSection?.document_id || null,
+        exclude_document_id: effectiveDocumentId,
+        document_id: effectiveDocumentId,
+        exclude_document_fingerprint: effectiveDocumentFingerprint,
+        target_content_id: effectiveTargetContentId,
       });
 
       const items = response?.items || [];
@@ -326,9 +364,15 @@ export default function CandidateComparison({
       };
 
       const options = {};
-      if (targetSection?.content_id) options.target_content_id = targetSection.content_id;
-      if (targetSection?.document_name) options.document_name = targetSection.document_name;
-      if (targetSection?.document_id) options.document_id = targetSection.document_id;
+      if (effectiveTargetContentId) options.target_content_id = effectiveTargetContentId;
+      if (effectiveDocumentName) options.document_name = effectiveDocumentName;
+      if (effectiveDocumentId) {
+        options.document_id = effectiveDocumentId;
+        options.exclude_document_id = effectiveDocumentId;
+      }
+      if (effectiveDocumentFingerprint) {
+        options.exclude_document_fingerprint = effectiveDocumentFingerprint;
+      }
       if (targetSection?.subsection) options.subsection = targetSection.subsection;
       if (targetSection?.location) options.location = targetSection.location;
       if (targetSection?.page !== undefined && targetSection?.page !== null) options.page = targetSection.page;
