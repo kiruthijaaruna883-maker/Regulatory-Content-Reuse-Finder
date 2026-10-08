@@ -687,16 +687,27 @@ def test_output_artifact_has_deterministic_sha256():
 
 
 # ==============================================================================
-# TEST 12: PDF is rejected as unsupported for correction
+# TEST 12: PDF corrected document generation succeeds and unsupported format rejected
 # ==============================================================================
 
 
-def test_pdf_rejected_as_unsupported_for_correction():
-    """Verify PDF format is cleanly rejected as input-only without corruption."""
+def test_pdf_corrected_document_generation_and_unsupported_format_guard():
+    """Verify PDF corrected document generation succeeds and unsupported formats are cleanly rejected."""
+    import pypdf
+    from reportlab.pdfgen import canvas
+
+    # 1. Valid PDF generation
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=(612, 792))
+    c.setFont("Helvetica", 12)
+    c.drawString(72, 700, "Dosage: 10 mg once daily.")
+    c.save()
+    pdf_bytes = buf.getvalue()
+
     store = get_candidate_store()
     store.store_source_document(
         document_id="doc_pdf_12",
-        source_bytes=b"%PDF-1.4 sample content",
+        source_bytes=pdf_bytes,
         filename="label.pdf",
         file_format="pdf",
     )
@@ -705,8 +716,8 @@ def test_pdf_rejected_as_unsupported_for_correction():
         change_id="chg_12",
         decision_id="dec_12",
         section="DOSAGE",
-        original_text="Old",
-        proposed_text="New",
+        original_text="Dosage: 10 mg once daily.",
+        proposed_text="Dosage: 20 mg once daily.",
         decision_type=ReviewDecisionType.REUSE,
         rationale="Rationale",
         status="APPROVED",
@@ -720,8 +731,29 @@ def test_pdf_rejected_as_unsupported_for_correction():
     )
 
     generator = CorrectedDocumentGenerator(candidate_store=store)
-    with pytest.raises(UnsupportedFormatError, match="PDF format is input-only"):
-        generator.generate_corrected_document(report=report)
+    result = generator.generate_corrected_document(report=report)
+    assert result.corrected_bytes.startswith(b"%PDF-")
+    assert result.output_filename == "Corrected_label.pdf"
+
+    reader = pypdf.PdfReader(io.BytesIO(result.corrected_bytes))
+    assert "20 mg" in reader.pages[0].extract_text()
+
+    # 2. Unsupported legacy format (doc) is cleanly rejected
+    store.store_source_document(
+        document_id="doc_bin_12",
+        source_bytes=b"\xd0\xcf\x11\xe0 legacy content",
+        filename="legacy.doc",
+        file_format="doc",
+    )
+    report_doc = ApprovedChangeReport(
+        report_id="rep_doc_12",
+        document_id="doc_bin_12",
+        author_approver="Approver",
+        approval_confirmation=True,
+        changes=[prop],
+    )
+    with pytest.raises(UnsupportedFormatError, match="not supported"):
+        generator.generate_corrected_document(report=report_doc)
 
 
 # ==============================================================================

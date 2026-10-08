@@ -1,7 +1,9 @@
 """Request and response models for document ingestion and candidate discovery."""
 
-from typing import Optional
+from typing import List, Optional
 from pydantic import BaseModel, Field
+
+from app.models.content import RegulatoryContentItem
 
 
 class DocumentIngestResponse(BaseModel):
@@ -13,6 +15,10 @@ class DocumentIngestResponse(BaseModel):
     jurisdiction: str = Field(..., description="Regulatory jurisdiction")
     sections_count: int = Field(..., description="Number of hierarchical sections parsed")
     chunks_count: int = Field(..., description="Number of candidate chunks registered in store")
+    sections: List[RegulatoryContentItem] = Field(
+        default_factory=list,
+        description="Extracted regulatory sections and content items from ingested document",
+    )
     source_repository: str = Field(
         default="InternalDraft",
         description="Source repository name",

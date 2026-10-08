@@ -146,8 +146,18 @@ export default function DocumentReview({ onSelectSectionForReview }) {
       const result = await api.ingestDocument(formData);
       setIngestResult(result);
 
-      // If text is available (paste mode), segment sections so reviewer can drill into specific sections
-      if (inputMode === 'paste' && docContent.trim()) {
+      // If backend returned parsed sections (from file or paste), populate extractedSections directly
+      if (result.sections && result.sections.length > 0) {
+        const enriched = result.sections.map((sec) => ({
+          ...sec,
+          document_id: result.document_id,
+          document_name: result.document_name,
+          jurisdiction: result.jurisdiction,
+          document_type: result.document_type,
+        }));
+        setExtractedSections(enriched);
+        setActiveSectionId(enriched[0].content_id);
+      } else if (inputMode === 'paste' && docContent.trim()) {
         try {
           const sections = await api.uploadDocument(cleanDocName, docContent.trim());
           const enriched = (sections || []).map((sec) => ({
@@ -165,7 +175,6 @@ export default function DocumentReview({ onSelectSectionForReview }) {
           // Non-blocking fallback if secondary segmentation fails
         }
       } else {
-        // In file mode, clear prior text-segmented sections to avoid stale display
         setExtractedSections([]);
       }
     } catch (err) {
@@ -189,16 +198,8 @@ export default function DocumentReview({ onSelectSectionForReview }) {
       return;
     }
 
-    // Default payload for file upload ingestion
-    onSelectSectionForReview({
-      content_id: `${ingestResult.document_id}_item`,
-      document_id: ingestResult.document_id,
-      document_name: ingestResult.document_name,
-      section: 'Ingested Document Draft',
-      text: selectedFile ? `File: ${selectedFile.name} (Registered ${ingestResult.chunks_count} content sections in store)` : docContent,
-      jurisdiction: ingestResult.jurisdiction,
-      document_type: ingestResult.document_type,
-    });
+    // Fail clearly rather than fabricating synthetic target text
+    setError('No source document section available for review. Please select or verify an extracted section.');
   }
 
   return (

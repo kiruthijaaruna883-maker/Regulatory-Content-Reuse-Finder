@@ -808,57 +808,90 @@ def evaluate_source_immutability() -> Dict[str, Any]:
     }
 
 
-def evaluate_pdf_input_only() -> Dict[str, Any]:
+def evaluate_pdf_corrected_document() -> Dict[str, Any]:
+    import hashlib
+    import pypdf
+    from reportlab.pdfgen import canvas
+
     store = IngestedDocumentCandidateStore()
     gen = CorrectedDocumentGenerator(candidate_store=store)
 
-    dummy_pdf_bytes = b"%PDF-1.4\n%regulatory test pdf input\n%%EOF"
+    # Build valid single-page test PDF
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=(612, 792))
+    c.setFont("Helvetica", 12)
+    c.drawString(72, 720, "1. CLINICAL SUMMARY")
+    c.drawString(72, 690, "Trial Phase 2 study completed.")
+    c.drawString(72, 660, "Patient cohort: 120 subjects.")
+    c.save()
+    raw_pdf_bytes = buf.getvalue()
+    orig_hash = hashlib.sha256(raw_pdf_bytes).hexdigest()
+
     store.store_source_document(
-        document_id="doc_pdf_input_only",
-        source_bytes=dummy_pdf_bytes,
+        document_id="doc_eval_pdf",
+        source_bytes=raw_pdf_bytes,
         filename="clinical_trial_summary.pdf",
         file_format="pdf",
     )
 
     prop = ProposedChange(
-        change_id="chg_pdf_01",
-        decision_id="dec_pdf",
-        section="SUMMARY",
-        original_text="Trial Phase 2",
-        proposed_text="Trial Phase 3",
+        change_id="chg_eval_pdf_01",
+        decision_id="dec_eval_pdf",
+        section="CLINICAL SUMMARY",
+        original_text="Trial Phase 2 study completed.",
+        proposed_text="Trial Phase 3 study completed.",
         decision_type=ReviewDecisionType.REUSE,
-        rationale="Update trial phase",
+        rationale="Update trial phase per pivotal trial protocol",
         status="APPROVED",
     )
     rep = ApprovedChangeReport(
-        report_id="rep_pdf_01",
-        document_id="doc_pdf_input_only",
+        report_id="rep_eval_pdf",
+        document_id="doc_eval_pdf",
         author_approver="Dr. Vance",
         approval_confirmation=True,
         changes=[prop],
     )
 
     checks = []
-    error_raised = False
-    correct_error_type = False
-    correct_message = False
 
+    # Check 1: approved PDF corrected generation succeeds
+    result = None
+    gen_succeeded = False
     try:
-        gen.generate_corrected_document(report=rep)
-    except UnsupportedFormatError as e:
-        error_raised = True
-        correct_error_type = True
-        correct_message = "PDF format is input-only; in-place PDF document correction is not supported." in str(e)
+        result = gen.generate_corrected_document(report=rep)
+        gen_succeeded = isinstance(result, CorrectedDocumentResult)
     except Exception:
-        error_raised = True
+        gen_succeeded = False
+    checks.append(("Approved PDF Corrected Generation Succeeded", gen_succeeded))
 
-    checks.append(("PDF Correction Generation Request Rejected", error_raised and correct_error_type))
-    checks.append(("PDF Input-Only Error Message Verified", correct_message))
-    checks.append(("Zero Corrected Artifact Bytes Emitted", error_raised))
+    # Check 2: output is valid PDF
+    valid_pdf = False
+    output_text = ""
+    if gen_succeeded and result:
+        try:
+            reader = pypdf.PdfReader(io.BytesIO(result.corrected_bytes))
+            valid_pdf = len(reader.pages) >= 1 and result.corrected_bytes.startswith(b"%PDF-")
+            if valid_pdf:
+                output_text = reader.pages[0].extract_text() or ""
+        except Exception:
+            valid_pdf = False
+    checks.append(("Output Artifact Is Valid PDF", valid_pdf))
+
+    # Check 3: replacement is present
+    replacement_present = "Trial Phase 3 study completed." in output_text
+    checks.append(("Approved Replacement Text Present in Output", replacement_present))
+
+    # Check 4: original source hash is unchanged
+    post_doc = store.get_source_document("doc_eval_pdf")
+    post_hash = hashlib.sha256(bytes(post_doc.source_bytes)).hexdigest() if post_doc else ""
+    hash_unchanged = bool(post_hash and orig_hash == post_hash and bytes(post_doc.source_bytes) == raw_pdf_bytes)
+    checks.append(("Original Source PDF Hash Unchanged (Immutable)", hash_unchanged))
 
     passed = sum(1 for _, ok in checks if ok)
     total = len(checks)
     return {
+        "original_hash": orig_hash,
+        "post_hash": post_hash,
         "checks": checks,
         "total_checks": total,
         "passed_checks": passed,
@@ -948,14 +981,14 @@ def main():
     print(f"   --> Source Immutability Pass Rate: {immut_res['pass_rate']}%")
     print("   --> Interpretation: Original source regulatory document bytes remain 100% immutable.\n")
 
-    pdf_res = evaluate_pdf_input_only()
-    print("10. PDF INPUT-ONLY EVALUATION:")
+    pdf_res = evaluate_pdf_corrected_document()
+    print("10. PDF CORRECTED-DOCUMENT EVALUATION:")
     for desc, ok in pdf_res["checks"]:
         status_str = "Passed" if ok else "Failed"
         print(f"   - {desc:<40}: {status_str}")
     print(f"   --> Total Checks Executed: {pdf_res['total_checks']} | Passed: {pdf_res['passed_checks']} | Failed: {pdf_res['failed_checks']}")
-    print(f"   --> PDF Input-Only Compliance: {pdf_res['pass_rate']}%")
-    print("   --> Interpretation: PDF strictly enforced as input-only; in-place PDF modification prohibited.\n")
+    print(f"   --> PDF Corrected Document Fidelity: {pdf_res['pass_rate']}%")
+    print("   --> Interpretation: Corrected PDF generated as new artifact; original source PDF remains 100% immutable.\n")
 
     print("================================================================")
     print("      EVALUATION BENCHMARK COMPLETE - ALL CRITERIA MET          ")

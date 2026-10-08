@@ -587,12 +587,22 @@ def test_explicit_document_id_precedence_over_item_fallback():
     assert data["document_id"] == "doc_explicit_priority"
 
 
-def test_pdf_workflow_corrected_document_guard():
-    """Test F: For a PDF workflow whose report resolves document_id, verify PDF input-only guard is reached."""
-    from tests.unit.test_phase2_pdf_docx import make_test_pdf_bytes
+def test_pdf_workflow_corrected_document_generation():
+    """Test F: For a PDF workflow whose report resolves document_id, verify corrected PDF is successfully generated and original source remains immutable."""
+    import hashlib
+    import pypdf
+    from reportlab.pdfgen import canvas
+
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=(612, 792))
+    c.setFont("Helvetica", 12)
+    c.drawString(72, 720, "1. INDICATIONS")
+    c.drawString(72, 690, "Drug is indicated for hypertension.")
+    c.save()
+    pdf_bytes = buf.getvalue()
+    pre_hash = hashlib.sha256(pdf_bytes).hexdigest()
 
     store = get_candidate_store()
-    pdf_bytes = make_test_pdf_bytes(["1. INDICATIONS\nDrug is indicated for hypertension."])
     store.store_source_document(
         document_id="doc_pdf_safety_guard",
         source_bytes=pdf_bytes,
@@ -608,7 +618,7 @@ def test_pdf_workflow_corrected_document_guard():
             "decision": "ADAPT",
             "reviewer_name": "Safety Reviewer",
             "reviewer_notes": "Adaptation note",
-            "adaptation_instructions": "New adapted text",
+            "adaptation_instructions": "Drug is indicated for severe hypertension.",
         },
     )
     assert res_dec.status_code == 200
@@ -641,7 +651,17 @@ def test_pdf_workflow_corrected_document_guard():
     rep_id = res_rep.json()["report_id"]
     assert res_rep.json()["document_id"] == "doc_pdf_safety_guard"
 
-    # 4. Attempt to download corrected document for PDF
+    # 4. Successfully generate and download corrected document for PDF
     res_corr = client.post(f"/changes/report/{rep_id}/corrected-document")
-    assert res_corr.status_code == 400
-    assert "PDF format is input-only; in-place PDF document correction is not supported." in res_corr.json()["detail"]
+    assert res_corr.status_code == 200
+    assert res_corr.headers["content-type"] == "application/pdf"
+    assert res_corr.content.startswith(b"%PDF-")
+
+    # 5. Verify source document immutability
+    retained_after = store.get_source_document("doc_pdf_safety_guard")
+    assert hashlib.sha256(bytes(retained_after.source_bytes)).hexdigest() == pre_hash
+
+    # 6. Verify replacement in generated PDF
+    reader = pypdf.PdfReader(io.BytesIO(res_corr.content))
+    out_text = reader.pages[0].extract_text()
+    assert "severe hypertension" in out_text

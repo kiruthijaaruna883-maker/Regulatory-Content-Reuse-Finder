@@ -28,7 +28,7 @@ GPR provides an auditable, two-agent decision-support framework that:
 2. Evaluates content similarity across six independent regulatory dimensions.
 3. Quantifies deterministic clinical differences (dosages, units, formulations).
 4. Enforces strict human decision gates before any change can be formulated or approved.
-5. Produces deterministic corrected documents for editable formats (DOCX, TXT) while strictly maintaining source document immutability and enforcing that PDF remains input-only.
+5. Produces deterministic corrected documents (DOCX, TXT, MD, PDF) while strictly maintaining source document immutability. PDF files are supported as inputs and can produce a newly generated corrected PDF after human approval. The original source PDF remains immutable.
 
 ---
 
@@ -79,11 +79,11 @@ Finalized Approved Change Report
        ├─────────────────────────────────────────┬─────────────────────────────────────────┐
        ▼                                         ▼                                         ▼
 Tamper-Evident Audit Trail              ReportLab PDF Export                    Deterministic Corrected Document
-(SHA-256 Back-Linked Hash Chain)        (Executive Summary PDF)                 (DOCX / TXT / MD Only)
+(SHA-256 Back-Linked Hash Chain)        (Executive Summary PDF)                 (DOCX / TXT / MD / PDF)
        │                                         │                                         │
        ▼                                         ▼                                         ▼
 SQLite Workflow Persistence             Browser PDF Download                    Browser Document Download
-(backend/data/gpr_workflow.db)          (Audit-Ready Report)                    (PDF In-Place Editing Blocked)
+(backend/data/gpr_workflow.db)          (Audit-Ready Report)                    (Newly Generated Corrected Artifact)
 ```
 
 ---
@@ -146,12 +146,19 @@ Governance boundaries are enforced programmatically across every transition:
 |---|---|---|---|---|
 | **DOCX** | Full Support | Full Support | **Supported** | Run-level text replacement preserves typography, bold, italics, tables, and section headings. |
 | **TXT / MD** | Full Support | Full Support | **Supported** | Section-bounded exact span replacement with UTF-8 encoding. |
-| **PDF** | Full Support | Full Support | **NOT SUPPORTED (Input-Only)** | **PDF is strictly input-only.** In-place PDF correction is explicitly blocked (`HTTP 400` / `UnsupportedFormatError`). |
+| **PDF** | Full Support | Full Support | **Supported** | **Newly generated corrected PDF artifact.** PDF files are supported as inputs and can produce a newly generated corrected PDF after human approval. The original source PDF remains immutable. |
 | **DOC (Binary)** | Legacy Ingestion | Full Support | **NOT SUPPORTED (Input-Only)** | Legacy binary DOC requires DOCX conversion for correction. |
 
-### Distinction Between Generated PDFs
-- **Approved Change Report PDF:** Generated via ReportLab as an executive audit summary of the review process (`GET /changes/report/{report_id}/pdf`).
-- **Source Document PDF:** Source PDF files are strictly input-only. The system never generates or mutates source PDFs.
+### Distinction Between PDF Artifacts
+- **Original Source PDF:** Stored immutably in memory (`IngestedDocumentCandidateStore`). The original source PDF bytes are never modified or mutated in-place.
+- **Corrected PDF:** A newly generated output artifact (`Corrected_<OriginalName>.pdf`) produced by merging an exact coordinate overlay on copies of affected pages after all human approval gates are satisfied.
+- **Approved Change Report PDF:** A separate audit/report artifact generated via ReportLab as an executive summary of the review process (`GET /changes/report/{report_id}/pdf`).
+
+#### Corrected PDF Capabilities and Known Limitations
+- **New Artifact Generation:** Corrected PDF is a completely new byte stream artifact, not an in-place mutation of the source document. Unaffected pages are copied without overlays.
+- **No Automatic Multi-Page Reflow:** PDF text does not reflow across pages or paragraphs.
+- **Safe Replacement Fitting:** The approved replacement text must safely fit within the resolved target region. If the replacement cannot safely fit using deterministic rendering, generation fails cleanly with a controlled error (`TargetResolutionError`) rather than overlapping unrelated text.
+- **Text Coordinate Extraction:** Scanned/image-only PDFs without usable text coordinates cannot be resolved for targeted coordinate replacement.
 
 ---
 
@@ -221,7 +228,7 @@ Implemented in `CorrectedDocumentGenerator`:
 - **Target Replacement Fidelity:** Run-level paragraph traversal in DOCX; exact character span matching in TXT.
 - **Target Resolution Safety:** Zero matches or multiple ambiguous matches fail immediately (`TargetResolutionError`).
 - **Preservation of Non-Targeted Content:** Excluded occurrences and surrounding paragraphs remain 100% unaltered.
-- **Format Safety:** Requests to correct PDF documents raise `UnsupportedFormatError("PDF format is input-only; in-place PDF document correction is not supported.")`.
+- **PDF Correction Generation:** Generates a new corrected PDF artifact (`Corrected_<OriginalName>.pdf`) using ReportLab overlay rendering merged onto affected pages while retaining original source PDF bytes completely unmodified. Requests to correct unsupported formats (e.g., legacy `.doc`) raise `UnsupportedFormatError`.
 - **Audit Emission:** Successful document generation appends a `CORRECTED_DOCUMENT_GENERATED` audit event containing the artifact's SHA-256 hash.
 
 ---
@@ -266,7 +273,7 @@ The React 19 / Vite frontend is organized into 5 unified stages:
 | `POST` | `/changes/approve` | Human approval gate; generates finalized `ApprovedChangeReport` |
 | `GET` | `/changes/report` | List active change proposals and reports |
 | `GET` | `/changes/report/{report_id}/pdf` | Generate and download audit-ready approved change report PDF |
-| `POST` | `/changes/report/{report_id}/corrected-document` | Generate and download corrected regulatory document (DOCX/TXT) |
+| `POST` | `/changes/report/{report_id}/corrected-document` | Generate and download corrected regulatory document (DOCX/TXT/MD/PDF) |
 | `GET` | `/history` | Retrieve session decision history |
 | `GET` | `/audit` | Retrieve chronological workflow audit events |
 | `GET` | `/audit/verify` | Verify cryptographic SHA-256 hash chain integrity |
@@ -311,7 +318,7 @@ Run the standalone evaluation runner from project root:
 - **Audit Hash-Chain Integrity & Tamper Detection:** **100.0%** (3/3 checks passed)
 - **Corrected Document Generation Fidelity:** **100.0%** (6/6 checks passed)
 - **Source Document Immutability:** **100.0%** (2/2 checks passed; SHA-256 identical before and after)
-- **PDF Input-Only Compliance:** **100.0%** (3/3 checks passed; in-place PDF correction cleanly rejected)
+- **PDF Corrected Document Fidelity:** **100.0%** (4/4 checks passed; valid PDF generated, replacement confirmed, source hash immutable)
 
 ---
 
@@ -330,7 +337,7 @@ GPR/
 │   │   ├── routes/                         # FastAPI route controllers
 │   │   └── services/
 │   │       ├── candidate_store.py          # Retained original source storage
-│   │       ├── corrected_document_generator.py # In-memory DOCX/TXT correction generator
+│   │       ├── corrected_document_generator.py # In-memory DOCX/TXT/MD/PDF correction generator
 │   │       ├── multi_dimensional_comparator.py # 6D comparison service
 │   │       ├── pdf_generator.py            # ReportLab approved change report PDF exporter
 │   │       ├── validation.py               # REG-VAL-001 through REG-VAL-006 engine

@@ -190,6 +190,16 @@ async def analyze_change_proposal(payload: ChangeAnalyzeRequest) -> ProposedChan
             ),
         )
 
+    orig_clean = (payload.original_text or "").strip()
+    if orig_clean.startswith("File:") and "Registered " in orig_clean and "content sections in store" in orig_clean:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Invalid original_text: synthetic ingestion status/metadata strings cannot be used as target text "
+                "for change proposals. Please select a genuine source document section or chunk."
+            ),
+        )
+
     proposal = change_agent.formulate_change_proposal(
         decision=decision,
         section=payload.section,
@@ -556,11 +566,6 @@ async def generate_corrected_document(report_id: str) -> Response:
         from pathlib import Path
         eff_fmt = Path(source_doc.filename).suffix.strip().lower().lstrip(".")
 
-    if eff_fmt == "pdf":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="PDF format is input-only; in-place PDF document correction is not supported.",
-        )
     if eff_fmt == "doc":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -604,6 +609,8 @@ async def generate_corrected_document(report_id: str) -> Response:
         media_type = "text/plain; charset=utf-8"
     elif out_fmt == "md":
         media_type = "text/markdown; charset=utf-8"
+    elif out_fmt == "pdf":
+        media_type = "application/pdf"
 
     return Response(
         content=result.corrected_bytes,

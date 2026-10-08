@@ -209,7 +209,9 @@ async def ingest_regulatory_document(
         mime_type=mime_type,
     )
 
-    # 8. Handle zero-chunk case
+    # 8. Retrieve registered candidate content items as sections
+    content_items = store.list_content_items(doc.document_id)
+
     if not chunks:
         return DocumentIngestResponse(
             document_id=doc.document_id,
@@ -218,6 +220,7 @@ async def ingest_regulatory_document(
             jurisdiction=doc.jurisdiction,
             sections_count=len(doc.sections),
             chunks_count=0,
+            sections=[],
             source_repository=doc.provenance.source_repository if doc.provenance else "InternalDraft",
             message="Document ingested successfully, but produced 0 usable regulatory candidate chunks.",
         )
@@ -229,6 +232,7 @@ async def ingest_regulatory_document(
         jurisdiction=doc.jurisdiction,
         sections_count=len(doc.sections),
         chunks_count=len(chunks),
+        sections=content_items,
         source_repository=doc.provenance.source_repository if doc.provenance else "InternalDraft",
         message=f"Successfully ingested and registered {len(chunks)} candidate chunk(s).",
     )

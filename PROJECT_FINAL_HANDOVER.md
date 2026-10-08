@@ -88,11 +88,11 @@ Approved Change Report
        ├─────────────────────────────────────────┬─────────────────────────────────────────┐
        ▼                                         ▼                                         ▼
 Tamper-Evident Audit Trail              ReportLab PDF Export                    Deterministic Corrected Document
-(SHA-256 Back-Linked Hash Chain)        (Executive Summary PDF)                 (DOCX / TXT / MD Only)
+(SHA-256 Back-Linked Hash Chain)        (Executive Summary PDF)                 (DOCX / TXT / MD / PDF)
        │                                         │                                         │
        ▼                                         ▼                                         ▼
 SQLite Workflow Persistence             Browser PDF Download                    Browser Document Download
-(backend/data/gpr_workflow.db)          (Audit-Ready Report)                    (PDF In-Place Editing Blocked)
+(backend/data/gpr_workflow.db)          (Audit-Ready Report)                    (Newly Generated Corrected Artifact)
 ```
 
 ---
@@ -176,7 +176,7 @@ The end-to-end workflow consists of 13 clearly defined stages:
 11. **Approved Change Report:**  
     An immutable `ApprovedChangeReport` is persisted in SQLite. The user can export an executive audit summary as a PDF (`GET /changes/report/{report_id}/pdf`).
 12. **Corrected Document Generation:**  
-    For eligible editable formats (DOCX, TXT, MD), the user clicks "Download Corrected Document" (`POST /changes/report/{report_id}/corrected-document`). The system applies confirmed changes onto the retained source bytes and returns a new document. PDF correction requests are cleanly rejected.
+    For supported formats (DOCX, TXT, MD, PDF), the user clicks "Download Corrected Document" (`POST /changes/report/{report_id}/corrected-document`). The system generates a newly created corrected document (e.g. `Corrected_<OriginalName>.pdf` or DOCX) while preserving original source bytes 100% immutable.
 13. **Audit Trail Verification:**  
     Every action emits an append-only event into the SHA-256 hash-chained ledger. Reviewers verify chain integrity on demand (`GET /audit/verify`).
 
@@ -331,15 +331,15 @@ The `ValidationService` (`backend/app/services/validation.py`) enforces six dete
 |---|---|---|---|---|
 | **DOCX** | Full Support | Full Support | **SUPPORTED** | In-memory XML paragraph and run-level traversal; preserves typography, bold, italics, tables, and section structure. |
 | **TXT / MD** | Full Support | Full Support | **SUPPORTED** | Exact character span replacement with UTF-8 encoding; surrounding text remains untouched. |
-| **PDF** | Full Support | Full Support | **NOT SUPPORTED (Input-Only)** | **PDF is strictly input-only.** Source PDF is parsed and reviewed, but in-place corrected PDF generation is explicitly rejected (`HTTP 400` / `UnsupportedFormatError`). |
+| **PDF** | Full Support | Full Support | **SUPPORTED** | **Newly generated corrected PDF artifact.** PDF files are supported as inputs and produce a newly generated corrected PDF (`Corrected_<OriginalName>.pdf`) after human approval. Original source PDF remains immutable. |
 | **DOC (Binary)** | Legacy Support | Full Support | **NOT SUPPORTED (Input-Only)** | Legacy binary DOC files are ingested for review, but binary in-place modification is not supported. |
 
 ### Critical Clarifications
-1. **PDF is Input-Only:** Source PDFs can be uploaded, parsed into sections, compared against candidates, and referenced in approved reports. However, the system **never modifies source PDFs** and **never generates corrected PDFs**.
-2. **Approved Change Report PDF vs Source Document:**
+1. **PDF Corrected Document Output:** PDF files are supported as inputs and can produce a newly generated corrected PDF (`Corrected_<OriginalName>.pdf`) after human approval. The original source PDF remains immutable; the generated PDF is a new artifact, not an in-place mutation.
+2. **Approved Change Report PDF vs Corrected PDF:**
    - The *Approved Change Report PDF* is a separate, audit-ready summary report generated via ReportLab (`GET /changes/report/{report_id}/pdf`).
-   - The *Corrected Source Document* is a modified version of the original file, supported only for editable formats (DOCX, TXT, MD).
-3. **Original Source Immutability:** Retained source bytes in the candidate store are never overwritten or mutated on disk. Corrected documents are generated transactionally into new in-memory byte streams.
+   - The *Corrected PDF* is a newly generated output artifact produced by merging exact ReportLab coordinate overlays onto copies of affected pages (`POST /changes/report/{report_id}/corrected-document`).
+3. **Original Source Immutability:** Retained source bytes in the candidate store are never overwritten or mutated on disk or in memory. Corrected documents are generated transactionally into new in-memory byte streams.
 
 ---
 
@@ -358,7 +358,7 @@ Implemented in `CorrectedDocumentGenerator` (`backend/app/services/corrected_doc
 5. **Preservation of Non-Targeted & Excluded Content:**  
    Occurrences marked `EXCLUDED` and all non-targeted paragraphs remain 100% unaltered.
 6. **Input-Only Guards:**  
-   Requests to generate corrected documents for PDF or legacy `.doc` files raise `UnsupportedFormatError` with descriptive error messages.
+   Requests to generate corrected documents for unsupported legacy formats (such as binary `.doc`) raise `UnsupportedFormatError` with descriptive error messages.
 7. **Output Naming Convention:**  
    Returns downloadable attachments named `Corrected_<original_filename>` (e.g., `Corrected_Protocol_A.docx`).
 8. **Audit Emission:**  
@@ -397,7 +397,7 @@ The React 19 frontend is organized into 5 unified stages:
 5. **Stage 5 — Approved Change Report (`ApprovedChangeReport.jsx`):**  
    Displays the finalized, authorized report with side-by-side diff previews, approver credentials, and cryptographic audit ledger. Provides two primary download actions:
    - **Download PDF Report:** Downloads the ReportLab audit summary PDF.
-   - **Download Corrected Document:** Downloads the corrected DOCX or TXT file (disabled/blocked for PDF uploads).
+   - **Download Corrected Document:** Downloads the corrected DOCX, TXT, or newly generated PDF file.
 
 ---
 
@@ -412,8 +412,8 @@ Only technologies actively implemented in the repository are listed:
 - **Data Contracts & Validation:** Pydantic v2, Pydantic Settings
 - **HTTP Client:** HTTPX (asynchronous requests for external regulatory APIs)
 - **Database:** SQLite 3 (standard library `sqlite3`, user_version = 2 schema)
-- **Document Processing:** `python-docx` (DOCX parsing/generation), `pypdf` (PDF text extraction)
-- **PDF Generation:** ReportLab 4.4+ (Approved Change Report PDF export)
+- **Document Processing:** `python-docx` (DOCX parsing/generation), `pypdf` (PDF text extraction and page overlay merging)
+- **PDF Generation:** ReportLab 4.4+ (Approved Change Report PDF export and corrected PDF overlay generation)
 - **Testing Framework:** Pytest 8.3+, `pytest-asyncio`
 
 ### Frontend Application
@@ -575,11 +575,12 @@ The evaluation benchmark (`evaluation/run_evaluation.py`) executes 10 comprehens
 - Source Bytes Byte-for-Byte Identical to Input: Passed
 - **Source Immutability Pass Rate:** **100.0%** (2/2 checks passed)
 
-### 10. PDF Input-Only Compliance Evaluation
-- PDF Correction Generation Request Rejected: Passed
-- PDF Input-Only Error Message Verified: Passed
-- Zero Corrected Artifact Bytes Emitted: Passed
-- **PDF Input-Only Compliance:** **100.0%** (3/3 checks passed)
+### 10. PDF Corrected Document Generation Evaluation
+- Approved PDF Corrected Generation Succeeded: Passed
+- Generated Output is Valid PDF: Passed
+- Approved Replacement Text Verified: Passed
+- Source PDF SHA-256 Retained and Immutable: Passed
+- **PDF Corrected Document Fidelity:** **100.0%** (4/4 checks passed)
 
 ---
 
@@ -608,7 +609,7 @@ The project evolved through a disciplined, verified phase progression:
 - **Phase 7 Baseline:**
   - `bf04196`: `fix: preserve document id through approval workflow` — Resolves authoritative `document_id` propagation across browser upload, decision recording, proposal formulation, report approval, and corrected document download.
 - **Phase 8A: Evaluation Benchmark Expansion (Implemented):**
-  - Expanded `evaluation/run_evaluation.py` and `evaluation/metrics.py` across 10 evaluation suites covering governance rules, approval gates, audit integrity, document correction fidelity, source immutability, and PDF input-only enforcement.
+  - Expanded `evaluation/run_evaluation.py` and `evaluation/metrics.py` across 10 evaluation suites covering governance rules, approval gates, audit integrity, document correction fidelity, source immutability, and PDF corrected document generation.
 - **Phase 8B: Authoritative README Update (Implemented):**
   - Updated `README.md` with 15 comprehensive technical sections, accurate numbers, and zero whitespace lint issues.
 - **Phase 8C: Consolidated Final Project Handover (Current Document):**
@@ -627,9 +628,8 @@ To ensure total transparency, project status is categorized across four distinct
 | **Implemented & Verified** | Three Human Governance Gates (`REUSE/ADAPT/REJECT`, `CONFIRMED/EXCLUDED`, Approval Gate) | Verified in unit tests & evaluation |
 | **Implemented & Verified** | Validation Rules `REG-VAL-001` through `REG-VAL-006` | Verified in unit tests & evaluation |
 | **Implemented & Verified** | SQLite Persistence & Cryptographic SHA-256 Hash Chain Ledger | Verified in unit tests & evaluation |
-| **Implemented & Verified** | Corrected Document Generation for DOCX and TXT | Verified in unit tests & evaluation |
-| **Implemented & Verified** | PDF Input-Only Boundary (In-place correction strictly rejected) | Verified in unit tests & evaluation |
-| **Implemented & Verified** | Original Source Document Byte Immutability | Verified (SHA-256 identical before & after) |
+| **Implemented & Verified** | Corrected Document Generation for DOCX, TXT, and PDF | Verified in unit tests & evaluation |
+| **Implemented & Verified** | Original Source Document Byte Immutability (DOCX, TXT, PDF) | Verified (SHA-256 identical before & after) |
 | **Implemented & Verified** | 22 Active FastAPI Endpoints | Verified via route inspection & tests |
 | **Implemented & Verified** | 458 Backend Automated Tests Passing | Verified via `pytest` (0 failures, 3 warnings) |
 | **Implemented & Verified** | Frontend Code Quality (`oxlint` 0 errors, `vite build` clean) | Verified via `npm run lint` & `npm run build` |
@@ -644,8 +644,8 @@ To ensure total transparency, project status is categorized across four distinct
 
 The following design boundaries are intentionally enforced:
 
-1. **PDF Source Correction is Unsupported (Input-Only):**  
-   PDF files cannot be modified in-place. The system strictly rejects requests to generate corrected PDFs (`UnsupportedFormatError` / `HTTP 400`). Generating an *Approved Change Report PDF* is supported as an audit export, but the source PDF remains immutable.
+1. **PDF Corrected Document Generation and Source Immutability:**
+   PDF files are supported as inputs and produce a newly generated corrected PDF artifact (`Corrected_<OriginalName>.pdf`) after human approval. The original source PDF remains immutable (not an in-place mutation). Unaffected pages are copied without overlays. Known limitations include: no automatic multi-page reflow; replacement text must safely fit within the resolved target region (failing safely with `TargetResolutionError` if it overflows); and scanned/image-only PDFs lacking extractable text coordinates cannot be resolved.
 2. **No Autonomous Approvals or Rejections:**  
    The system cannot make binding regulatory decisions. It operates strictly as decision support.
 3. **Pending Occurrences Strictly Block Approval:**  
@@ -678,7 +678,7 @@ This concise script enables presenters, product managers, or engineers to demons
 7. **Slide 7 — Validation & Human Gate 3 (Authorization):**  
    *"The system executes deterministic validation rules REG-VAL-001 through REG-VAL-006. The authorized approver provides explicit digital confirmation and their regulatory identity."*
 8. **Slide 8 — Outputs & Cryptographic Audit:**  
-   *"The system generates two deliverables: an executive audit-ready PDF summary and a corrected DOCX document with original formatting preserved. Every step is cryptographically linked in a SHA-256 append-only ledger, providing complete GxP and 21 CFR Part 11 traceability."*
+   *"The system generates two deliverables: an executive audit-ready PDF summary and a corrected document (DOCX, TXT, or PDF) with original formatting preserved. Every step is cryptographically linked in a SHA-256 append-only ledger, providing complete GxP and 21 CFR Part 11 traceability."*
 
 ---
 
@@ -687,7 +687,7 @@ This concise script enables presenters, product managers, or engineers to demons
 - [x] **Runtime Implementation Complete:** Two-agent architecture fully implemented.
 - [x] **Governance Gates Verified:** Gate 1 (`REUSE/ADAPT/REJECT`), Gate 2 (`CONFIRMED/EXCLUDED`), and Gate 3 (`approval_confirmation=true`) verified.
 - [x] **Corrected Document Behavior Verified:** In-memory DOCX and TXT generation verified.
-- [x] **PDF Input-Only Verified:** Rejection of in-place PDF correction verified.
+- [x] **PDF Corrected Document Generation Verified:** Generation of new corrected PDF artifact with source immutability verified.
 - [x] **Source Immutability Verified:** Original source bytes SHA-256 match before and after generation.
 - [x] **Audit Integrity Verified:** SHA-256 hash chaining and tamper detection verified.
 - [x] **Evaluation Suite Expanded (Phase 8A):** All 10 evaluation suites passing cleanly.
