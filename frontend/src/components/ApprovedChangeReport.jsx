@@ -314,6 +314,7 @@ export default function ApprovedChangeReport({ approvedReport }) {
   // Corrected Document Download state & action
   const [correctedDocLoading, setCorrectedDocLoading] = useState(false);
   const [correctedDocError, setCorrectedDocError] = useState(null);
+  const [showCorrectedDocDetails, setShowCorrectedDocDetails] = useState(false);
 
   async function handleDownloadCorrectedDoc() {
     if (!report?.report_id || !report?.approval_confirmation) {
@@ -322,6 +323,7 @@ export default function ApprovedChangeReport({ approvedReport }) {
 
     setCorrectedDocLoading(true);
     setCorrectedDocError(null);
+    setShowCorrectedDocDetails(false);
 
     try {
       const { blob, filename } = await api.downloadCorrectedDocument(report.report_id);
@@ -536,26 +538,128 @@ export default function ApprovedChangeReport({ approvedReport }) {
       )}
 
       {/* Corrected Document Download Error Banner */}
-      {correctedDocError && (
-        <div
-          style={{
-            maxWidth: '920px',
-            margin: '0 auto 1rem auto',
-            padding: '0.75rem 1rem',
-            background: 'rgba(239, 68, 68, 0.12)',
-            border: '1px solid rgba(239, 68, 68, 0.3)',
-            borderRadius: 'var(--radius-sm)',
-            color: '#fca5a5',
-            fontSize: '0.8rem',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-          }}
-        >
-          <AlertCircle size={16} color="var(--color-danger)" />
-          <span>{correctedDocError}</span>
-        </div>
-      )}
+      {correctedDocError && (() => {
+        const isPdfFitError = typeof correctedDocError === 'string' && (
+          correctedDocError.toLowerCase().includes('cannot safely fit') ||
+          correctedDocError.toLowerCase().includes('without automatic page reflow')
+        );
+
+        if (isPdfFitError) {
+          const occMatch = correctedDocError.match(/occurrence\s+['"]?([a-zA-Z0-9_-]+)['"]?/i);
+          const occurrenceId = occMatch ? occMatch[1] : null;
+
+          return (
+            <div
+              style={{
+                maxWidth: '920px',
+                margin: '0 auto 1rem auto',
+                padding: '1rem 1.25rem',
+                background: 'rgba(239, 68, 68, 0.08)',
+                border: '1px solid rgba(239, 68, 68, 0.35)',
+                borderRadius: 'var(--radius-sm)',
+                color: 'var(--color-text-main, #f1f5f9)',
+                fontSize: '0.82rem',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+                <AlertCircle size={20} color="var(--color-danger)" style={{ flexShrink: 0, marginTop: '2px' }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: '600', color: 'var(--color-danger)', fontSize: '0.9rem', marginBottom: '0.35rem' }}>
+                    PDF Layout Constraint: Adapted Text Exceeds Available Space
+                  </div>
+                  <div style={{ color: 'var(--color-text-muted, #94a3b8)', lineHeight: '1.45', marginBottom: '0.6rem' }}>
+                    The replacement text is longer than the original content and cannot safely fit within the fixed PDF page layout without overlapping downstream content.
+                  </div>
+
+                  <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '0.6rem 0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(255, 255, 255, 0.06)', marginBottom: '0.6rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', marginBottom: '0.35rem' }}>
+                      <span style={{ color: 'var(--color-primary, #38bdf8)', fontWeight: '500' }}>•</span>
+                      <span style={{ color: 'var(--color-text-main, #e2e8f0)', lineHeight: '1.4' }}>
+                        Please adjust your adaptation in Review Decisions to use more concise wording that fits within the available space.
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                      <span style={{ color: 'var(--color-primary, #38bdf8)', fontWeight: '500' }}>•</span>
+                      <span style={{ color: 'var(--color-text-muted, #94a3b8)', lineHeight: '1.4' }}>
+                        If substantial text expansion is required, upload and process the original DOCX version of the document, which supports automatic paragraph and page reflow.
+                      </span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.4rem', fontSize: '0.75rem' }}>
+                    {occurrenceId && (
+                      <span style={{ color: 'var(--color-text-muted, #94a3b8)' }}>
+                        Target Occurrence:{' '}
+                        <code style={{ background: 'rgba(0, 0, 0, 0.25)', padding: '0.15rem 0.4rem', borderRadius: '3px', color: '#fca5a5' }}>
+                          {occurrenceId}
+                        </code>
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShowCorrectedDocDetails((prev) => !prev)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--color-text-muted, #94a3b8)',
+                        cursor: 'pointer',
+                        padding: 0,
+                        fontSize: '0.74rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.25rem',
+                        textDecoration: 'underline',
+                      }}
+                    >
+                      {showCorrectedDocDetails ? 'Hide technical details' : 'Show technical details'}
+                      {showCorrectedDocDetails ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                    </button>
+                  </div>
+
+                  {showCorrectedDocDetails && (
+                    <div
+                      style={{
+                        marginTop: '0.5rem',
+                        padding: '0.5rem',
+                        background: 'rgba(0, 0, 0, 0.35)',
+                        borderRadius: '3px',
+                        fontFamily: 'monospace',
+                        fontSize: '0.72rem',
+                        color: '#fca5a5',
+                        wordBreak: 'break-word',
+                        lineHeight: '1.4',
+                      }}
+                    >
+                      {correctedDocError}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        return (
+          <div
+            style={{
+              maxWidth: '920px',
+              margin: '0 auto 1rem auto',
+              padding: '0.75rem 1rem',
+              background: 'rgba(239, 68, 68, 0.12)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              borderRadius: 'var(--radius-sm)',
+              color: '#fca5a5',
+              fontSize: '0.8rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+            }}
+          >
+            <AlertCircle size={16} color="var(--color-danger)" />
+            <span>{correctedDocError}</span>
+          </div>
+        );
+      })()}
 
       {/* ========================================================================= */}
       {/* VIEW 1: APPROVED CHANGE MANIFEST (Step 6.7 Authentic Report & Proposals) */}
