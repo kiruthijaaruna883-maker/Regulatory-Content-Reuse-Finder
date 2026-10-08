@@ -443,7 +443,8 @@ class IngestedDocumentCandidateStore:
                 if exclude_document_id and item.document_id == exclude_document_id:
                     continue
 
-                if target_fp and getattr(item, "document_fingerprint", None) == target_fp:
+                item_fp = getattr(item, "document_fingerprint", None) or self._doc_to_fingerprint.get(item.document_id)
+                if target_fp and item_fp == target_fp:
                     continue
 
                 if exclude_content_id and item.content_id == exclude_content_id:

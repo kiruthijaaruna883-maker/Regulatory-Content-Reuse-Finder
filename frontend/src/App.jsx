@@ -12,12 +12,25 @@ import DocumentReview from './components/DocumentReview';
 import CandidateComparison from './components/CandidateComparison';
 import ChangeReview from './components/ChangeReview';
 import ApprovedChangeReport from './components/ApprovedChangeReport';
+import {
+  loadPersistedReviewContext,
+  persistReviewContext,
+  clearPersistedReviewContext,
+} from './services/reviewSession';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [selectedCandidate, setSelectedCandidate] = useState(null);
-  const [selectedSection, setSelectedSection] = useState(null);
-  const [activeSourceDocument, setActiveSourceDocument] = useState(null);
+
+  // Lazy state initializers restore active review context from sessionStorage across reloads
+  const [activeSourceDocument, setActiveSourceDocument] = useState(() => {
+    const ctx = loadPersistedReviewContext();
+    return ctx?.activeSourceDocument || null;
+  });
+  const [selectedSection, setSelectedSection] = useState(() => {
+    const ctx = loadPersistedReviewContext();
+    return ctx?.selectedSection || null;
+  });
   const [activeDecision, setActiveDecision] = useState(null);
   const [comparisonContext, setComparisonContext] = useState(null);
   const [approvedReport, setApprovedReport] = useState(null);
@@ -31,20 +44,29 @@ export default function App() {
   // Callback from DocumentReview upon successful document ingestion/upload
   function handleDocumentIngested(docData) {
     if (docData) {
-      setActiveSourceDocument({
+      const newSourceDoc = {
         document_id: docData.document_id,
         document_fingerprint: docData.document_fingerprint,
         document_name: docData.document_name,
         sections: docData.sections || [],
         jurisdiction: docData.jurisdiction,
         document_type: docData.document_type,
-      });
+      };
+      setActiveSourceDocument(newSourceDoc);
+      // Reset selectedSection when a new source document is ingested
+      setSelectedSection(null);
+      persistReviewContext(newSourceDoc, null);
+    } else {
+      setActiveSourceDocument(null);
+      setSelectedSection(null);
+      clearPersistedReviewContext();
     }
   }
 
   // Transition helper from Document Review to Comparison & Decision
   function handleSelectSectionForReview(section) {
     setSelectedSection(section);
+    persistReviewContext(activeSourceDocument, section);
     setActiveTab('comparison');
   }
 

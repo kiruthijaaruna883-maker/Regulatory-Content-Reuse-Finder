@@ -73,10 +73,18 @@ export default function CandidateComparison({
   const effectiveTargetContentId = targetSection?.content_id || (activeSourceDocument?.sections?.length > 0 ? activeSourceDocument.sections[0].content_id : null) || null;
 
   // Target Content State
-  const initialTargetText = targetSection?.text ||
-    (activeSourceDocument?.sections?.length > 0 ? activeSourceDocument.sections[0].text : null) ||
+  const DEFAULT_SAMPLE_TARGET_TEXT =
     'Adults: Take 1 tablet (500 mg) orally every 4 to 6 hours with water. Do not exceed 6 tablets within 24 hours.';
+  const initialTargetText = targetSection?.text ||
+    (activeSourceDocument?.sections?.find((s) => s.text)?.text || (activeSourceDocument?.sections?.length > 0 ? activeSourceDocument.sections[0].text : null)) ||
+    DEFAULT_SAMPLE_TARGET_TEXT;
   const [targetText, setTargetText] = useState(initialTargetText);
+
+  // Safety check: Never treat fallback sample text as a real uploaded document
+  const isFallbackSampleText =
+    !targetSection?.text &&
+    (!activeSourceDocument?.sections || !activeSourceDocument.sections.some((s) => s.text && s.text.trim() === (targetText || '').trim())) &&
+    (targetText || '').trim() === DEFAULT_SAMPLE_TARGET_TEXT.trim();
 
   // Active Selected Candidate State (initialized from candidateItem prop)
   const initialCandidateUnderlying =
@@ -199,10 +207,16 @@ export default function CandidateComparison({
           source_filter: 'all',
           top_k: 10,
         };
-        if (effectiveTargetContentId) options.target_content_id = effectiveTargetContentId;
+        if (effectiveTargetContentId && !isFallbackSampleText) {
+          options.target_content_id = effectiveTargetContentId;
+        }
         if (effectiveDocumentName) options.document_name = effectiveDocumentName;
-        if (effectiveDocumentId) {
+        // Never treat the fallback sample text as a real uploaded document
+        if (effectiveDocumentId && !isFallbackSampleText) {
           options.document_id = effectiveDocumentId;
+        }
+        // Always enforce exclusion if an active source document identity exists
+        if (effectiveDocumentId) {
           options.exclude_document_id = effectiveDocumentId;
         }
         if (effectiveDocumentFingerprint) {
@@ -264,6 +278,7 @@ export default function CandidateComparison({
     effectiveDocumentFingerprint,
     effectiveDocumentName,
     effectiveTargetContentId,
+    isFallbackSampleText,
   ]);
 
   // Trigger candidate discovery via api.searchCandidates
@@ -283,12 +298,12 @@ export default function CandidateComparison({
         query: queryClean,
         source_filter: sourceFilter,
         section: targetSection?.section || null,
-        target_text: targetText || null,
+        target_text: isFallbackSampleText ? null : (targetText || null),
         top_k: Number(topK),
         exclude_document_id: effectiveDocumentId,
         document_id: effectiveDocumentId,
         exclude_document_fingerprint: effectiveDocumentFingerprint,
-        target_content_id: effectiveTargetContentId,
+        target_content_id: isFallbackSampleText ? null : effectiveTargetContentId,
       });
 
       const items = response?.items || [];
@@ -364,10 +379,14 @@ export default function CandidateComparison({
       };
 
       const options = {};
-      if (effectiveTargetContentId) options.target_content_id = effectiveTargetContentId;
+      if (effectiveTargetContentId && !isFallbackSampleText) {
+        options.target_content_id = effectiveTargetContentId;
+      }
       if (effectiveDocumentName) options.document_name = effectiveDocumentName;
-      if (effectiveDocumentId) {
+      if (effectiveDocumentId && !isFallbackSampleText) {
         options.document_id = effectiveDocumentId;
+      }
+      if (effectiveDocumentId) {
         options.exclude_document_id = effectiveDocumentId;
       }
       if (effectiveDocumentFingerprint) {

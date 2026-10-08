@@ -126,7 +126,13 @@ class LiveRAGRetriever:
             )
             and not (
                 target_fp
-                and getattr(candidate, "document_fingerprint", None) == target_fp
+                and (
+                    getattr(candidate, "document_fingerprint", None) == target_fp
+                    or (
+                        hasattr(self.candidate_store, "get_document_fingerprint")
+                        and self.candidate_store.get_document_fingerprint(candidate.document_id) == target_fp
+                    )
+                )
             )
             and not (
                 exclude_content_id
