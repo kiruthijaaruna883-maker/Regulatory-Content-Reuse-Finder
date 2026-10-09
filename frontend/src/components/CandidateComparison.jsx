@@ -72,16 +72,27 @@ export default function CandidateComparison({
   const effectiveDocumentName = targetSection?.document_name || activeSourceDocument?.document_name || null;
   const effectiveTargetContentId = targetSection?.content_id || (activeSourceDocument?.sections?.length > 0 ? activeSourceDocument.sections[0].content_id : null) || null;
 
+  // Explicit source context check: active uploaded document or section selected
+  const hasExplicitSourceContext = Boolean(
+    targetSection?.content_id ||
+    targetSection?.document_id ||
+    activeSourceDocument?.document_id
+  );
+
   // Target Content State
   const DEFAULT_SAMPLE_TARGET_TEXT =
     'Adults: Take 1 tablet (500 mg) orally every 4 to 6 hours with water. Do not exceed 6 tablets within 24 hours.';
+  // Never silently replace an uploaded document's missing section text with demo/sample content
   const initialTargetText = targetSection?.text ||
     (activeSourceDocument?.sections?.find((s) => s.text)?.text || (activeSourceDocument?.sections?.length > 0 ? activeSourceDocument.sections[0].text : null)) ||
-    DEFAULT_SAMPLE_TARGET_TEXT;
+    (hasExplicitSourceContext ? '' : DEFAULT_SAMPLE_TARGET_TEXT);
   const [targetText, setTargetText] = useState(initialTargetText);
+  const [isRehydratingText, setIsRehydratingText] = useState(false);
+  const [textRehydrationError, setTextRehydrationError] = useState(null);
 
   // Safety check: Never treat fallback sample text as a real uploaded document
   const isFallbackSampleText =
+    !hasExplicitSourceContext &&
     !targetSection?.text &&
     (!activeSourceDocument?.sections || !activeSourceDocument.sections.some((s) => s.text && s.text.trim() === (targetText || '').trim())) &&
     (targetText || '').trim() === DEFAULT_SAMPLE_TARGET_TEXT.trim();
@@ -182,6 +193,63 @@ export default function CandidateComparison({
     setDifferences([]);
     setSelectedCandidateIndex(0);
   }
+
+  // On-demand safe section text restoration when reloading session with active document context
+  useEffect(() => {
+    if (!hasExplicitSourceContext) return;
+    if (targetText && targetText.trim().length > 0) return;
+
+    let isSubscribed = true;
+    async function restoreSectionText() {
+      setIsRehydratingText(true);
+      setTextRehydrationError(null);
+      try {
+        let restoredText = null;
+        if (effectiveTargetContentId) {
+          const sec = await api.getDocumentSection(effectiveTargetContentId);
+          if (sec && sec.text) {
+            restoredText = sec.text;
+          }
+        } else if (effectiveDocumentId) {
+          const doc = await api.getDocument(effectiveDocumentId);
+          if (doc && doc.sections && doc.sections.length > 0) {
+            const matchSec = targetSection?.section
+              ? doc.sections.find((s) => s.section === targetSection.section) || doc.sections[0]
+              : doc.sections[0];
+            if (matchSec && matchSec.text) {
+              restoredText = matchSec.text;
+            }
+          }
+        }
+
+        if (isSubscribed) {
+          if (restoredText) {
+            setTargetText(restoredText);
+          } else {
+            setTextRehydrationError(
+              'Target section text is not loaded in current session. Please select the section from Document Review.'
+            );
+          }
+        }
+      } catch (err) {
+        if (isSubscribed) {
+          console.warn('Section text rehydration notice:', err);
+          setTextRehydrationError(
+            'Target section text could not be restored from session store. Please re-select the section from Document Review.'
+          );
+        }
+      } finally {
+        if (isSubscribed) {
+          setIsRehydratingText(false);
+        }
+      }
+    }
+
+    restoreSectionText();
+    return () => {
+      isSubscribed = false;
+    };
+  }, [hasExplicitSourceContext, targetText, effectiveTargetContentId, effectiveDocumentId, targetSection?.section]);
 
   // Automatic Candidate Discovery & 6D Evaluation on Mount / Section Change
   useEffect(() => {
@@ -648,7 +716,7 @@ export default function CandidateComparison({
               </span>
               <span>•</span>
               <span>
-                Candidate Reference: <strong>{selectedCandidate?.document_name || selectedCandidate?.product || 'Auto-Discovered Reference'}</strong> ({selectedCandidate?.source || 'DailyMed'})
+                Candidate Reference: <strong>{selectedCandidate?.section ? `${selectedCandidate.section} — ` : ''}{selectedCandidate?.document_name || selectedCandidate?.product || 'Auto-Discovered Reference'}</strong> ({selectedCandidate?.source || 'DailyMed'})
               </span>
             </div>
           </div>
@@ -685,6 +753,7 @@ export default function CandidateComparison({
                 compCand.candidate ||
                 compCand;
               const isSelected = selectedCandidateIndex === idx;
+              const secLabel = item.section || item.subsection || (item.location ? `Loc: ${item.location}` : null);
               return (
                 <button
                   key={item.content_id || idx}
@@ -699,8 +768,9 @@ export default function CandidateComparison({
                     color: isSelected ? 'var(--color-brand)' : 'var(--text-secondary)',
                     fontWeight: isSelected ? 700 : 500,
                   }}
+                  title={item.document_name ? `${secLabel ? `${secLabel} — ` : ''}${item.document_name}` : undefined}
                 >
-                  Candidate #{idx + 1}: {item.document_name || item.product || 'Record'} ({item.source || compCand.source})
+                  Candidate #{idx + 1}: {secLabel ? `${secLabel} — ` : ''}{item.document_name || item.product || 'Record'} ({item.source || compCand.source})
                 </button>
               );
             })}
@@ -966,13 +1036,26 @@ export default function CandidateComparison({
             )}
           </div>
 
+          {textRehydrationError && (
+            <div style={{ marginBottom: '0.75rem', padding: '0.6rem 0.8rem', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', color: '#b91c1c', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <AlertCircle size={15} />
+              <span>{textRehydrationError}</span>
+            </div>
+          )}
+
+          {isRehydratingText && (
+            <div style={{ marginBottom: '0.75rem', padding: '0.5rem 0.8rem', background: 'rgba(13, 148, 136, 0.08)', border: '1px solid rgba(13, 148, 136, 0.2)', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', color: 'var(--color-brand)' }}>
+              Restoring section text from active session...
+            </div>
+          )}
+
           <textarea
             className="input-text"
             rows={7}
             value={targetText}
             onChange={(e) => setTargetText(e.target.value)}
             style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.85rem', lineHeight: 1.45 }}
-            placeholder="Target draft content..."
+            placeholder={isRehydratingText ? 'Restoring section text...' : 'Target draft content...'}
           />
         </div>
 

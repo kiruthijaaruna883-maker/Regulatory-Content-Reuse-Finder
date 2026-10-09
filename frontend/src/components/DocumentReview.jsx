@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   FileText,
   UploadCloud,
@@ -29,29 +29,100 @@ const ALLOWED_EXTENSIONS = [
   '.txt'
 ];
 
-export default function DocumentReview({ onSelectSectionForReview, onDocumentIngested }) {
+export default function DocumentReview({
+  activeSourceDocument,
+  selectedSection,
+  onSelectSectionForReview,
+  onDocumentIngested,
+}) {
   // Upload is the primary / default mode
   const [inputMode, setInputMode] = useState('file'); // 'file' | 'paste'
   const [selectedFile, setSelectedFile] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
 
   // Document metadata
-  const [docName, setDocName] = useState('Draft Prescribing Information v1.2');
+  const [docName, setDocName] = useState(activeSourceDocument?.document_name || 'Draft Prescribing Information v1.2');
   const [docContent, setDocContent] = useState(SAMPLE_INTERNAL_DRAFT);
-  const [jurisdiction, setJurisdiction] = useState('US_FDA');
-  const [docType, setDocType] = useState('REGULATORY_LABEL');
+  const [jurisdiction, setJurisdiction] = useState(activeSourceDocument?.jurisdiction || 'US_FDA');
+  const [docType, setDocType] = useState(activeSourceDocument?.document_type || 'REGULATORY_LABEL');
   const [productName, setProductName] = useState('');
   const [activeIngredient, setActiveIngredient] = useState('');
 
   // Processing & Ingestion states
-  const [extractedSections, setExtractedSections] = useState([]);
+  const [extractedSections, setExtractedSections] = useState(activeSourceDocument?.sections || []);
   const [ingesting, setIngesting] = useState(false);
-  const [ingestResult, setIngestResult] = useState(null);
+  const [ingestResult, setIngestResult] = useState(() => {
+    if (!activeSourceDocument?.document_id) return null;
+    return {
+      document_id: activeSourceDocument.document_id,
+      document_fingerprint: activeSourceDocument.document_fingerprint,
+      document_name: activeSourceDocument.document_name,
+      jurisdiction: activeSourceDocument.jurisdiction,
+      document_type: activeSourceDocument.document_type,
+      sections_count: activeSourceDocument.sections_count || activeSourceDocument.sections?.length || 0,
+      chunks_count: activeSourceDocument.chunks_count || activeSourceDocument.sections?.length || 0,
+    };
+  });
   const [error, setError] = useState(null);
-  const [activeSectionId, setActiveSectionId] = useState(null);
+  const [activeSectionId, setActiveSectionId] = useState(selectedSection?.content_id || activeSourceDocument?.sections?.[0]?.content_id || null);
   const [detailsOpen, setDetailsOpen] = useState(false);
 
   const fileInputRef = useRef(null);
+
+  // Synchronize state when activeSourceDocument or selectedSection props change
+  const [prevSourceDoc, setPrevSourceDoc] = useState(activeSourceDocument);
+  const [prevSelectedSec, setPrevSelectedSec] = useState(selectedSection);
+  if (activeSourceDocument !== prevSourceDoc || selectedSection !== prevSelectedSec) {
+    setPrevSourceDoc(activeSourceDocument);
+    setPrevSelectedSec(selectedSection);
+    if (activeSourceDocument?.document_name) {
+      setDocName(activeSourceDocument.document_name);
+    }
+    if (activeSourceDocument?.jurisdiction) {
+      setJurisdiction(activeSourceDocument.jurisdiction);
+    }
+    if (activeSourceDocument?.document_type) {
+      setDocType(activeSourceDocument.document_type);
+    }
+    if (activeSourceDocument?.document_id) {
+      setIngestResult({
+        document_id: activeSourceDocument.document_id,
+        document_fingerprint: activeSourceDocument.document_fingerprint,
+        document_name: activeSourceDocument.document_name,
+        jurisdiction: activeSourceDocument.jurisdiction,
+        document_type: activeSourceDocument.document_type,
+        sections_count: activeSourceDocument.sections_count || activeSourceDocument.sections?.length || 0,
+        chunks_count: activeSourceDocument.chunks_count || activeSourceDocument.sections?.length || 0,
+      });
+    }
+    if (Array.isArray(activeSourceDocument?.sections) && activeSourceDocument.sections.length > 0) {
+      setExtractedSections(activeSourceDocument.sections);
+      setActiveSectionId(selectedSection?.content_id || activeSourceDocument.sections[0].content_id);
+    }
+  }
+
+  // On-demand fetch if active document has an ID but sections array is empty in session
+  useEffect(() => {
+    if (!activeSourceDocument?.document_id) return;
+    if (Array.isArray(activeSourceDocument.sections) && activeSourceDocument.sections.length > 0) return;
+
+    let isSubscribed = true;
+    api.getDocument(activeSourceDocument.document_id)
+      .then((doc) => {
+        if (!isSubscribed) return;
+        if (doc?.sections && doc.sections.length > 0) {
+          setExtractedSections(doc.sections);
+          setActiveSectionId(selectedSection?.content_id || doc.sections[0].content_id);
+        }
+      })
+      .catch((fetchErr) => {
+        console.warn('Could not rehydrate document sections from session:', fetchErr);
+      });
+
+    return () => {
+      isSubscribed = false;
+    };
+  }, [activeSourceDocument?.document_id, activeSourceDocument?.sections, selectedSection?.content_id]);
 
   function processFile(file) {
     if (!file) return;
@@ -533,7 +604,11 @@ export default function DocumentReview({ onSelectSectionForReview, onDocumentIng
                 </div>
 
                 <p style={{ fontSize: '0.86rem', color: 'var(--text-secondary)', margin: '0 0 1rem 0' }}>
-                  Your document was successfully processed and registered for regulatory reuse analysis.
+                  {ingestResult.document_name ? (
+                    <>Active Document: <strong>{ingestResult.document_name}</strong> registered for regulatory reuse analysis.</>
+                  ) : (
+                    'Your document was successfully processed and registered for regulatory reuse analysis.'
+                  )}
                 </p>
 
                 <div className="grid-2" style={{ gap: '0.75rem', marginBottom: '1.25rem' }}>
@@ -595,7 +670,7 @@ export default function DocumentReview({ onSelectSectionForReview, onDocumentIng
                           <span className="badge badge-section">{sec.content_id}</span>
                         </div>
                         <div className="result-text" style={{ maxHeight: '70px', marginBottom: '0.5rem', fontSize: '0.8rem' }}>
-                          {sec.text}
+                          {sec.text || (sec.subsection ? `Subsection: ${sec.subsection}` : 'Registered regulatory section.')}
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                           <button

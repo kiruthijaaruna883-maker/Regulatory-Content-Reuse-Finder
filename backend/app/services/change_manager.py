@@ -536,42 +536,6 @@ class ChangeManagerService:
         )
         return saved
 
-    def record_corrected_document_generated(
-        self,
-        report: ApprovedChangeReport,
-        result: Any,
-    ) -> AuditEvent:
-        """Record an audit trail event for successful corrected regulatory document generation."""
-        change_ids = [c.change_id for c in report.changes if getattr(c, "change_id", None)]
-        details = {
-            "report_id": report.report_id,
-            "document_id": result.document_id,
-            "change_ids": change_ids,
-            "original_filename": result.original_filename,
-            "output_filename": result.output_filename,
-            "input_format": result.input_format,
-            "output_format": result.output_format,
-            "size_bytes": result.size_bytes,
-            "sha256_hash": result.sha256_hash,
-            "author_approver": report.author_approver,
-        }
-        new_state = {
-            "report_id": report.report_id,
-            "document_id": result.document_id,
-            "output_filename": result.output_filename,
-            "sha256_hash": result.sha256_hash,
-        }
-        primary_change_id = change_ids[0] if change_ids else None
-        return self.store.append_audit_event(
-            event_type=AuditEventType.CORRECTED_DOCUMENT_GENERATED.value,
-            change_id=primary_change_id,
-            report_id=report.report_id,
-            reviewer_name=report.author_approver,
-            details=details,
-            previous_state=None,
-            new_state=new_state,
-        )
-
     def get_latest_report(self) -> Optional[ApprovedChangeReport]:
         """Retrieve most recently generated report."""
         return self.store.get_latest_report()

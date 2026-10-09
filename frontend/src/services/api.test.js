@@ -114,3 +114,43 @@ test('api.searchCandidates and api.analyzeCandidates preserve backward compatibi
     global.fetch = originalFetch;
   }
 });
+
+test('api.getDocument requests GET /documents/{document_id}', async () => {
+  let capturedUrl = null;
+  const originalFetch = global.fetch;
+  global.fetch = async (url) => {
+    capturedUrl = url;
+    return {
+      ok: true,
+      json: async () => ({ document_id: 'doc_123', document_name: 'Test Doc', sections: [] }),
+    };
+  };
+
+  try {
+    const res = await api.getDocument('doc_123');
+    assert.ok(capturedUrl.includes('/documents/doc_123'));
+    assert.strictEqual(res.document_id, 'doc_123');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('api.getDocumentSection requests GET /documents/section/{content_id}', async () => {
+  let capturedUrl = null;
+  const originalFetch = global.fetch;
+  global.fetch = async (url) => {
+    capturedUrl = url;
+    return {
+      ok: true,
+      json: async () => ({ content_id: 'chk_456', text: 'Safe clinical text' }),
+    };
+  };
+
+  try {
+    const res = await api.getDocumentSection('chk_456');
+    assert.ok(capturedUrl.includes('/documents/section/chk_456'));
+    assert.strictEqual(res.text, 'Safe clinical text');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});

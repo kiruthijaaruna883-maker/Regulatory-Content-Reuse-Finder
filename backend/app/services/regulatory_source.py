@@ -130,6 +130,27 @@ class DailyMedSource(BaseRegulatorySource):
                     )
                     items.append(item)
 
+                # Attempt XML section hydration for top SPL record(s) if available
+                for top_item in items[:2]:
+                    setid_to_fetch = top_item.document_id
+                    if setid_to_fetch:
+                        try:
+                            detail_sections = await self.get_document_details(setid_to_fetch)
+                            if detail_sections:
+                                sec_clean = (section or "").lower().strip()
+                                matching_secs = [
+                                    s for s in detail_sections
+                                    if sec_clean and (sec_clean in (s.section or "").lower() or (s.section or "").lower() in sec_clean)
+                                ]
+                                chosen_sec = matching_secs[0] if matching_secs else detail_sections[0]
+                                if chosen_sec.text and len(chosen_sec.text.strip()) > 30:
+                                    top_item.text = chosen_sec.text
+                                    top_item.section = chosen_sec.section or top_item.section
+                                    if chosen_sec.location:
+                                        top_item.location = chosen_sec.location
+                        except Exception as hydrate_err:
+                            logger.debug("DailyMed section hydration skipped for %s: %s", setid_to_fetch, hydrate_err)
+
         except httpx.TimeoutException:
             logger.error("DailyMed search timed out after %s seconds for query: %s", self.timeout, clean_query)
             raise TimeoutError(f"DailyMed live service timed out after {self.timeout}s")
@@ -294,7 +315,11 @@ class OpenFDASource(BaseRegulatorySource):
         # Construct openFDA query targeting brand name, generic name, or substance
         # Escaping quotes to prevent malformed query syntax
         sanitized_q = clean_query.replace('"', "")
-        search_param = f'openfda.brand_name:"{sanitized_q}"+openfda.generic_name:"{sanitized_q}"'
+        is_heading_query = bool(re.search(r"^(section\s*\d+|part\s*\d+|indications?(\s+and\s+usage)?|dosage(\s+and\s+administration)?|contraindications?|warnings?|precautions?|storage)", sanitized_q, re.I))
+        if is_heading_query:
+            search_param = sanitized_q
+        else:
+            search_param = f'openfda.brand_name:"{sanitized_q}"+openfda.generic_name:"{sanitized_q}"'
 
         params: Dict[str, Any] = {
             "search": search_param,

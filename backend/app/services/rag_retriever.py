@@ -6,6 +6,7 @@ and retrieves candidates with attribute filtering and full traceability.
 """
 
 import logging
+import re
 from typing import Any, Dict, List, Optional, Tuple
 from app.config import settings
 from app.models.content import KeyInformation, RegulatoryContentItem
@@ -15,6 +16,18 @@ from app.services.regulatory_source import RegulatorySourceService
 from app.services.vector_store import VectorStore
 
 logger = logging.getLogger("rag_retriever")
+
+SECTION_HEADING_PATTERN = re.compile(
+    r"^(section\s*\d+|part\s*\d+|chapter\s*\d+|[0-9]+[\.\:\s]+|indications?(\s+and\s+usage)?|dosage(\s+and\s+administration)?|contraindications?|warnings?(\s+and\s+precautions)?|precautions?|adverse\s*reactions?|drug\s*interactions?|clinical\s*pharmacology|storage|how\s*supplied|description|overdosage|patient\s*counseling)",
+    re.IGNORECASE,
+)
+
+
+def is_section_heading(text: Optional[str]) -> bool:
+    """Determine whether text represents a regulatory section header rather than a drug name."""
+    if not text:
+        return False
+    return bool(SECTION_HEADING_PATTERN.search(text.strip()))
 
 
 class LiveRAGRetriever:
@@ -78,22 +91,64 @@ class LiveRAGRetriever:
         if not query:
             return []
 
+        # Resolve verified drug name without fabricating or inferring from section titles
+        verified_drug = None
+        if key_info and key_info.drug and not is_section_heading(key_info.drug):
+            verified_drug = key_info.drug
+        elif key_info and key_info.active_ingredient and not is_section_heading(key_info.active_ingredient):
+            verified_drug = key_info.active_ingredient
+        elif exclude_document_id and hasattr(self.candidate_store, "get_document"):
+            doc = self.candidate_store.get_document(exclude_document_id)
+            if doc:
+                doc_ing = getattr(doc, "active_ingredient", None)
+                doc_prod = getattr(doc, "product_name", None)
+                if doc_ing and not is_section_heading(doc_ing):
+                    verified_drug = doc_ing
+                elif doc_prod and not is_section_heading(doc_prod):
+                    verified_drug = doc_prod
+                elif hasattr(self.candidate_store, "list_content_items"):
+                    for it in self.candidate_store.list_content_items(exclude_document_id):
+                        if it.drug and not is_section_heading(it.drug):
+                            verified_drug = it.drug
+                            break
+
+        # Determine external query: never send a section heading to DailyMed as drug_name
+        external_query = verified_drug
+        if not external_query and not is_section_heading(query):
+            external_query = query
+
         raw_candidates: List[RegulatoryContentItem] = []
         norm_filter = (source_filter or "all").lower().strip()
         fetch_limit = max(k * 2, 10)
 
         # 2a. Query live external trusted sources on demand (DailyMed, openFDA)
         if norm_filter in ("all", "dailymed", "openfda"):
-            try:
-                search_result = await self.sources.search(
-                    query=query,
-                    source=norm_filter if norm_filter != "all" else "all",
-                    section=section_hint,
-                    limit=fetch_limit,
-                )
-                raw_candidates.extend(search_result.items)
-            except Exception as exc:
-                logger.warning("Live regulatory query failed: %s", exc)
+            if external_query:
+                try:
+                    search_result = await self.sources.search(
+                        query=external_query,
+                        source=norm_filter if norm_filter != "all" else "all",
+                        section=section_hint,
+                        limit=fetch_limit,
+                    )
+                    raw_candidates.extend(search_result.items)
+                except Exception as exc:
+                    logger.warning("Live regulatory query failed: %s", exc)
+            else:
+                # If no reliable drug name exists, openFDA can perform text/section search
+                if norm_filter in ("all", "openfda") and (section_hint or query):
+                    try:
+                        fda_q = section_hint or query
+                        fda_items = await self.sources.openfda.search(
+                            query=fda_q,
+                            section=section_hint,
+                            limit=fetch_limit,
+                        )
+                        raw_candidates.extend(fda_items)
+                    except Exception as exc:
+                        logger.warning("openFDA fallback query failed: %s", exc)
+                if norm_filter == "dailymed":
+                    logger.info("DailyMed query skipped: no verified drug name available for query '%s'", query)
 
         # Resolve target document fingerprint: use supplied directly, or resolve via canonical store
         target_fp = exclude_document_fingerprint

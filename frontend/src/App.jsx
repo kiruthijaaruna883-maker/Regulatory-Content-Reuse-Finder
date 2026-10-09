@@ -184,6 +184,8 @@ export default function App() {
 
         {activeTab === 'review' && (
           <DocumentReview
+            activeSourceDocument={activeSourceDocument}
+            selectedSection={selectedSection}
             onSelectSectionForReview={handleSelectSectionForReview}
             onDocumentIngested={handleDocumentIngested}
           />

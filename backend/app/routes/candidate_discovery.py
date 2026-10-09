@@ -13,9 +13,10 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, status
 
-from app.models.content import KeyInformation, RegulatorySearchResult
+from app.models.content import KeyInformation, RegulatoryContentItem, RegulatorySearchResult
 from app.models.ingest import CandidateSearchRequest, DocumentIngestResponse
 from app.services.candidate_store import get_candidate_store
+from app.services.compatibility.regulatory_adapter import chunk_to_content_item
 from app.services.ingestion.unified_ingestion import ingest_and_chunk_document
 from app.services.rag_retriever import LiveRAGRetriever
 
@@ -309,3 +310,66 @@ async def search_candidates(payload: CandidateSearchRequest) -> RegulatorySearch
         items=items,
         errors=errors if errors else None,
     )
+
+
+@router.get(
+    "/documents/{document_id}",
+    response_model=DocumentIngestResponse,
+    summary="Retrieve stored regulatory document by document ID",
+)
+async def get_stored_document(document_id: str) -> DocumentIngestResponse:
+    """Retrieve stored document metadata and its parsed sections from the active session store."""
+    clean_id = (document_id or "").strip()
+    if not clean_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="document_id is required",
+        )
+    store = get_candidate_store()
+    doc = store.get_document(clean_id)
+    if not doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document '{clean_id}' not found in active session store.",
+        )
+    content_items = store.list_content_items(clean_id)
+    chunks = store.list_chunks(clean_id)
+    return DocumentIngestResponse(
+        document_id=doc.document_id,
+        document_fingerprint=doc.document_fingerprint,
+        document_name=doc.title,
+        document_type=doc.document_type,
+        jurisdiction=doc.jurisdiction,
+        sections_count=len(doc.sections),
+        chunks_count=len(chunks),
+        sections=content_items,
+        source_repository=doc.provenance.source_repository if doc.provenance else "InternalDraft",
+        message="Stored document retrieved successfully from active session store.",
+    )
+
+
+@router.get(
+    "/documents/section/{content_id}",
+    response_model=RegulatoryContentItem,
+    summary="Retrieve stored regulatory section content item by content ID",
+)
+async def get_stored_document_section(content_id: str) -> RegulatoryContentItem:
+    """Retrieve a single stored section chunk by content ID for post-reload text rehydration."""
+    clean_id = (content_id or "").strip()
+    if not clean_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="content_id is required",
+        )
+    store = get_candidate_store()
+    item = store.get_content_item(clean_id)
+    if not item:
+        chunk = store.get_chunk(clean_id)
+        if chunk:
+            item = chunk_to_content_item(chunk)
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Section '{clean_id}' not found in active session store.",
+        )
+    return item
